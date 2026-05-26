@@ -72,14 +72,14 @@ const INSTRUMENTS = [
 
 // ── Daily Challenges ──────────────────────────────────────────────────────────
 const CHALLENGES_POOL = [
-  {id:'c_warmup',    icon:'🎯', title:'Mise en route',     desc:'Compléter une session d\'exercices',         req:(s,d)=>s.todayExercises>=1,  reward:2},
-  {id:'c_ten',       icon:'🔥', title:'Assiduité',         desc:'Réaliser 10 exercices aujourd\'hui',         req:(s,d)=>s.todayExercises>=10, reward:3},
-  {id:'c_twenty',    icon:'💪', title:'Marathon',          desc:'Réaliser 20 exercices aujourd\'hui',         req:(s,d)=>s.todayExercises>=20, reward:5},
+  {id:'c_warmup',    icon:'🎯', title:'Mise en route',     desc:'Compléter une session d\'exercices',         req:(s)=>s.todayExercises>=1,  reward:2},
+  {id:'c_ten',       icon:'🔥', title:'Assiduité',         desc:'Réaliser 10 exercices aujourd\'hui',         req:(s)=>s.todayExercises>=10, reward:3},
+  {id:'c_twenty',    icon:'💪', title:'Marathon',          desc:'Réaliser 20 exercices aujourd\'hui',         req:(s)=>s.todayExercises>=20, reward:5},
   {id:'c_perfect',   icon:'⭐', title:'Session parfaite',  desc:'Terminer une session avec 100% de réussite', req:(s,d)=>s.lastPerfect===d,    reward:5},
   {id:'c_interval',  icon:'🎵', title:'Mélodiste',         desc:'Terminer une session d\'intervalles',        req:(s,d)=>s.lastIntervalDay===d,reward:3},
   {id:'c_chord_ear', icon:'🎹', title:'Harmoniste',        desc:'Terminer une session d\'accords à l\'oreille',req:(s,d)=>s.lastChordEarDay===d,reward:3},
-  {id:'c_library',   icon:'♩',  title:'Bibliothécaire',    desc:'Explorer 5 accords dans la bibliothèque',   req:(s,d)=>s.todayLibViews>=5,   reward:2},
-  {id:'c_sections',  icon:'🗺', title:'Explorateur',       desc:'Visiter 3 sections différentes aujourd\'hui',req:(s,d)=>s.todaySections>=3,   reward:4},
+  {id:'c_library',   icon:'♩',  title:'Bibliothécaire',    desc:'Explorer 5 accords dans la bibliothèque',   req:(s)=>s.todayLibViews>=5,   reward:2},
+  {id:'c_sections',  icon:'🗺', title:'Explorateur',       desc:'Visiter 3 sections différentes aujourd\'hui',req:(s)=>s.todaySections>=3,   reward:4},
 ];
 function getDailyChallenges(dateStr) {
   const seed=dateStr.split('').reduce((a,c)=>(a*31+c.charCodeAt(0))&0xFFFFFF,0);
@@ -102,7 +102,7 @@ function checkAndComplete(stats,today,dailyChallenges) {
 const STATS_KEY='cs_stats_v2';
 const DEF_STATS={totalExercises:0,totalSeconds:0,sessionsCount:0,keys:0,todayDate:'',todayExercises:0,todayLibViews:0,todaySections:0,lastPerfect:'',lastIntervalDay:'',lastChordEarDay:'',completedChallenges:[]};
 const loadStats=()=>{try{return{...DEF_STATS,...JSON.parse(localStorage.getItem(STATS_KEY)||'{}')};}catch{return{...DEF_STATS};}};
-const saveStats=s=>{try{localStorage.setItem(STATS_KEY,JSON.stringify(s));}catch(e){console.warn('Failed to save stats', e);}};
+const saveStats=s=>{try{localStorage.setItem(STATS_KEY,JSON.stringify(s));}catch{/* ignore errors */}};
 function formatTime(s){if(!s||s<60)return'0 min';const m=Math.floor(s/60);if(m<60)return`${m} min`;const h=Math.floor(m/60),r=m%60;return r>0?`${h}h ${r}min`:`${h}h`;}
 function todayStr(){return new Date().toISOString().slice(0,10);}
 function resetDailyIfNeeded(stats){
@@ -133,7 +133,7 @@ function commitTime(){const secs=Math.floor((Date.now()-_sessionStart)/1000);_se
 // ── Audio ─────────────────────────────────────────────────────────────────────
 let _audioCtx=null;
 function getACtx(){if(!_audioCtx)_audioCtx=new(window.AudioContext||window.webkitAudioContext)();if(_audioCtx.state==='suspended')_audioCtx.resume();return _audioCtx;}
-function playNote(semi,delay=0,dur=1.8){try{const ctx=getACtx(),freq=261.63*Math.pow(2,semi/12),t=ctx.currentTime+delay;[[1,.45],[2,.12],[3,.07],[4,.03]].forEach(([h,g])=>{const o=ctx.createOscillator(),gn=ctx.createGain();o.connect(gn);gn.connect(ctx.destination);o.frequency.value=freq*h;o.type='sine';gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(g,t+.008);gn.gain.exponentialRampToValueAtTime(.001,t+dur);o.start(t);o.stop(t+dur+.05);});}catch(e){console.warn(e);}}
+function playNote(semi,delay=0,dur=1.8){try{const ctx=getACtx(),freq=261.63*Math.pow(2,semi/12),t=ctx.currentTime+delay;[[1,.45],[2,.12],[3,.07],[4,.03]].forEach(([h,g])=>{const o=ctx.createOscillator(),gn=ctx.createGain();o.connect(gn);gn.connect(ctx.destination);o.frequency.value=freq*h;o.type='sine';gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(g,t+.008);gn.gain.exponentialRampToValueAtTime(.001,t+dur);o.start(t);o.stop(t+dur+.05);});}catch{/* ignore errors */}}
 const playSeq=(n1,n2)=>{playNote(n1);playNote(n2,1.1);};
 const playSimul=(n1,n2)=>{playNote(n1,0,2);playNote(n2,0,2);};
 const playChordArp=ns=>ns.forEach((s,i)=>playNote(s,i*.1,2.2));
@@ -513,8 +513,428 @@ function OreilPage(){
   </div>);
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── CHOPIN DATA ───────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const IMSLP_BASE = 'https://imslp.org/wiki/';
+const CHOPIN_WORKS = {
+  etudes: [
+    {op:'10',no:1, key:'Do maj.',   nick:'Waterfall',    diff:5, url:'12_%C3%89tudes,_Op.10_(Chopin)'},
+    {op:'10',no:3, key:'Mi maj.',   nick:'Tristesse',    diff:3, url:'12_%C3%89tudes,_Op.10_(Chopin)'},
+    {op:'10',no:4, key:'Do# min.',  nick:'',             diff:5, url:'12_%C3%89tudes,_Op.10_(Chopin)'},
+    {op:'10',no:5, key:'Sol♭ maj.', nick:'Touches noires',diff:4,url:'12_%C3%89tudes,_Op.10_(Chopin)'},
+    {op:'10',no:9, key:'Fa min.',   nick:'',             diff:3, url:'12_%C3%89tudes,_Op.10_(Chopin)'},
+    {op:'10',no:12,key:'Do min.',   nick:'Révolutionnaire',diff:5,url:'12_%C3%89tudes,_Op.10_(Chopin)'},
+    {op:'25',no:1, key:'La♭ maj.', nick:'Harpe éolienne',diff:4,url:'12_%C3%89tudes,_Op.25_(Chopin)'},
+    {op:'25',no:9, key:'Sol♭ maj.', nick:'Papillon',     diff:4, url:'12_%C3%89tudes,_Op.25_(Chopin)'},
+    {op:'25',no:11,key:'La min.',   nick:'Vent d\'hiver', diff:5,url:'12_%C3%89tudes,_Op.25_(Chopin)'},
+    {op:'25',no:12,key:'Do min.',   nick:'Océan',        diff:5, url:'12_%C3%89tudes,_Op.25_(Chopin)'},
+  ],
+  nocturnes: [
+    {op:'9', no:1, key:'Si♭ min.', nick:'',              diff:3, url:'Nocturnes,_Op.9_(Chopin)'},
+    {op:'9', no:2, key:'Mi♭ maj.', nick:'',              diff:2, url:'Nocturne_in_E-flat_major,_Op.9_No.2_(Chopin)'},
+    {op:'15',no:1, key:'Fa maj.',  nick:'',              diff:3, url:'Nocturnes,_Op.15_(Chopin)'},
+    {op:'15',no:2, key:'Fa# maj.', nick:'',              diff:3, url:'Nocturnes,_Op.15_(Chopin)'},
+    {op:'27',no:2, key:'Ré♭ maj.', nick:'',              diff:3, url:'Nocturnes,_Op.27_(Chopin)'},
+    {op:'32',no:1, key:'Si maj.',  nick:'',              diff:3, url:'Nocturnes,_Op.32_(Chopin)'},
+    {op:'37',no:2, key:'Sol maj.', nick:'',              diff:3, url:'Nocturnes,_Op.37_(Chopin)'},
+    {op:'48',no:1, key:'Do min.',  nick:'',              diff:4, url:'Nocturnes,_Op.48_(Chopin)'},
+    {op:'55',no:1, key:'Fa min.',  nick:'',              diff:3, url:'Nocturnes,_Op.55_(Chopin)'},
+    {op:'62',no:1, key:'Si maj.',  nick:'',              diff:3, url:'Nocturnes,_Op.62_(Chopin)'},
+    {op:'72',no:1, key:'Mi min.',  nick:'(posthume)',    diff:2, url:'Nocturne_in_E_minor,_Op.72,_No.1_(Chopin)'},
+    {op:'posth.',no:'',key:'Do# min.',nick:'(posthume)', diff:2, url:'Nocturne_in_C-sharp_minor,_Op.posth._(Chopin)'},
+  ]
+};
+
+// ── Songs Tabs data ───────────────────────────────────────────────────────────
+// Chord progressions are not copyrightable — standard music theory fact
+const SONGS_TABS = [
+  { id:1, title:"Canon en Ré",     artist:"Pachelbel",     era:"Baroque ~1680", key:"Ré",   bpm:100, cat:"classique", color:"#85C1E9",
+    chords:[{n:"D",t:"Majeures"},{n:"A",t:"Majeures"},{n:"B",t:"Mineures"},{n:"F#",t:"Mineures"},{n:"G",t:"Majeures"},{n:"D",t:"Majeures"},{n:"G",t:"Majeures"},{n:"A",t:"Majeures"}] },
+  { id:2, title:"Prélude en Do",   artist:"J.S. Bach",     era:"Baroque ~1722", key:"Do",   bpm:80,  cat:"classique", color:"#C39BD3",
+    chords:[{n:"C",t:"Majeures"},{n:"A",t:"Mineures"},{n:"D",t:"Mineures"},{n:"G",t:"Majeures"},{n:"C",t:"Majeures"}] },
+  { id:3, title:"Für Elise",       artist:"Beethoven",     era:"Classique 1810",key:"La min.",bpm:76, cat:"classique", color:"#82E0AA",
+    chords:[{n:"A",t:"Mineures"},{n:"E",t:"Majeures"},{n:"A",t:"Mineures"},{n:"C",t:"Majeures"},{n:"G",t:"Majeures"},{n:"A",t:"Mineures"}] },
+  { id:4, title:"Minuet en Sol",   artist:"J.S. Bach",     era:"Baroque ~1725", key:"Sol",  bpm:126, cat:"classique", color:"#F7DC6F",
+    chords:[{n:"G",t:"Majeures"},{n:"C",t:"Majeures"},{n:"G",t:"Majeures"},{n:"D",t:"Majeures"},{n:"G",t:"Majeures"},{n:"D",t:"Majeures"}] },
+  { id:5, title:"Greensleeves",    artist:"Traditionnel",  era:"XVIe siècle",   key:"La min.",bpm:80, cat:"folk", color:"#AED6F1",
+    chords:[{n:"A",t:"Mineures"},{n:"G",t:"Majeures"},{n:"F",t:"Majeures"},{n:"E",t:"Majeures"},{n:"A",t:"Mineures"},{n:"C",t:"Majeures"},{n:"G",t:"Majeures"},{n:"E",t:"Majeures"}] },
+  { id:6, title:"Scarborough Fair", artist:"Traditionnel", era:"Folk anglais",  key:"La min.",bpm:90, cat:"folk", color:"#82E0AA",
+    chords:[{n:"A",t:"Mineures"},{n:"G",t:"Majeures"},{n:"A",t:"Mineures"},{n:"C",t:"Majeures"},{n:"D",t:"Majeures"},{n:"A",t:"Mineures"}] },
+  { id:7, title:"Amazing Grace",   artist:"Traditionnel",  era:"Hymne ~1779",   key:"Do",   bpm:70,  cat:"folk", color:"#F1948A",
+    chords:[{n:"G",t:"Majeures"},{n:"C",t:"Majeures"},{n:"G",t:"Majeures"},{n:"D",t:"Majeures"},{n:"G",t:"Majeures"},{n:"C",t:"Majeures"}] },
+  { id:8, title:"Hallelujah",      artist:"L. Cohen",      era:"1984",          key:"Do",   bpm:60,  cat:"pop", color:"#C39BD3",
+    chords:[{n:"C",t:"Majeures"},{n:"A",t:"Mineures"},{n:"C",t:"Majeures"},{n:"A",t:"Mineures"},{n:"F",t:"Majeures"},{n:"G",t:"Majeures"}] },
+  { id:9, title:"Let It Be",       artist:"The Beatles",   era:"1970",          key:"Do",   bpm:76,  cat:"pop", color:"#85C1E9",
+    chords:[{n:"C",t:"Majeures"},{n:"G",t:"Majeures"},{n:"A",t:"Mineures"},{n:"F",t:"Majeures"}] },
+  { id:10,title:"Knockin' on Heaven's Door",artist:"B. Dylan",era:"1973",        key:"Sol",  bpm:68,  cat:"pop", color:"#82E0AA",
+    chords:[{n:"G",t:"Majeures"},{n:"D",t:"Majeures"},{n:"A",t:"Mineures"},{n:"G",t:"Majeures"},{n:"D",t:"Majeures"},{n:"C",t:"Majeures"}] },
+  { id:11,title:"Stand By Me",     artist:"B.E. King",     era:"1961",          key:"La",   bpm:120, cat:"pop", color:"#F7DC6F",
+    chords:[{n:"A",t:"Majeures"},{n:"F#",t:"Mineures"},{n:"D",t:"Majeures"},{n:"E",t:"Majeures"}] },
+  { id:12,title:"La Bamba",        artist:"Traditionnel",  era:"Folk mexicain", key:"Do",   bpm:170, cat:"folk", color:"#E8A87C",
+    chords:[{n:"C",t:"Majeures"},{n:"F",t:"Majeures"},{n:"G",t:"Majeures"}] },
+];
+
+function playTabChord(name, type) {
+  const root = CHROMATIC.indexOf(name);
+  if (root === -1 || !CHORD_TYPES[type]) return;
+  const notes = CHORD_TYPES[type].formula.map(i => root + i + 4);
+  playChordArp(notes);
+}
+
+// ── Solfège data ──────────────────────────────────────────────────────────────
+const SOLFEGE_MAP = [
+  {fr:'Do',  en:'C',  semi:0,  color:'#E8A87C'},
+  {fr:'Ré',  en:'D',  semi:2,  color:'#85C1E9'},
+  {fr:'Mi',  en:'E',  semi:4,  color:'#82E0AA'},
+  {fr:'Fa',  en:'F',  semi:5,  color:'#F1948A'},
+  {fr:'Sol', en:'G',  semi:7,  color:'#C39BD3'},
+  {fr:'La',  en:'A',  semi:9,  color:'#F7DC6F'},
+  {fr:'Si',  en:'B',  semi:11, color:'#AED6F1'},
+];
+const SOLFEGE_CHROM = [
+  {fr:'Do',   en:'C',  semi:0}, {fr:'Do#/Réb',en:'C#/Db',semi:1},
+  {fr:'Ré',   en:'D',  semi:2}, {fr:'Ré#/Mi♭',en:'D#/Eb',semi:3},
+  {fr:'Mi',   en:'E',  semi:4}, {fr:'Fa',    en:'F',  semi:5},
+  {fr:'Fa#/Sol♭',en:'F#/Gb',semi:6},{fr:'Sol',en:'G', semi:7},
+  {fr:'Sol#/La♭',en:'G#/Ab',semi:8},{fr:'La',en:'A',  semi:9},
+  {fr:'La#/Si♭',en:'A#/Bb',semi:10},{fr:'Si', en:'B',  semi:11},
+];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── PARTITIONS PAGE (Chopin) ──────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function PartitionsPage() {
+  const [tab, setTab] = useState('etudes');
+  const works = tab === 'etudes' ? CHOPIN_WORKS.etudes : CHOPIN_WORKS.nocturnes;
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Sub tabs */}
+      <div style={{display:'flex',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.4)',flexShrink:0}}>
+        {[['etudes','Études'],['nocturnes','Nocturnes']].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'.6rem',background:'none',border:'none',color:tab===id?'#C39BD3':'rgba(240,235,224,0.35)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.08em',borderBottom:tab===id?'1.5px solid #C39BD3':'1.5px solid transparent',transition:'all 0.2s'}}>
+            {label.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'1rem'}}>
+        {/* Header */}
+        <div style={{marginBottom:'1rem',padding:'.75rem',background:'rgba(195,155,211,0.05)',border:'0.5px solid rgba(195,155,211,0.15)',borderRadius:4}}>
+          <div style={{fontSize:11,color:'#C39BD3',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.35rem'}}>FRÉDÉRIC CHOPIN — DOMAINE PUBLIC</div>
+          <p style={{fontSize:12,opacity:.5,margin:0,lineHeight:1.5,fontFamily:'Georgia,serif'}}>Partitions gratuites via IMSLP. Cliquez sur une pièce pour accéder à la partition en PDF.</p>
+        </div>
+
+        {/* Pieces list */}
+        <div style={{display:'flex',flexDirection:'column',gap:7}}>
+          {works.map((w,i)=>(
+            <a key={i} href={`${IMSLP_BASE}${w.url}`} target="_blank" rel="noopener noreferrer"
+              style={{textDecoration:'none',display:'block',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.1)',borderRadius:4,padding:'.9rem 1rem',transition:'all 0.2s',cursor:'pointer'}}
+              onMouseEnter={e=>{e.currentTarget.style.background='rgba(195,155,211,0.07)';e.currentTarget.style.borderColor='rgba(195,155,211,0.3)';}}
+              onMouseLeave={e=>{e.currentTarget.style.background='rgba(240,235,224,0.02)';e.currentTarget.style.borderColor='rgba(240,235,224,0.1)';}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:5}}>
+                <div style={{display:'flex',gap:10,alignItems:'baseline'}}>
+                  <span style={{fontSize:10,color:'#C39BD3',fontFamily:'monospace',opacity:.7}}>Op.{w.op}{w.no?` n°${w.no}`:''}</span>
+                  <span style={{fontSize:14,fontWeight:'bold',color:'#f0ebe0',fontFamily:'Georgia,serif'}}>{w.key}</span>
+                  {w.nick&&<span style={{fontSize:11,color:'rgba(240,235,224,0.45)',fontStyle:'italic'}}>"{w.nick}"</span>}
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                  <div style={{display:'flex',gap:2}}>
+                    {[1,2,3,4,5].map(s=>(<div key={s} style={{width:6,height:6,borderRadius:'50%',background:s<=w.diff?'#C39BD3':'rgba(240,235,224,0.15)'}}/>))}
+                  </div>
+                  <span style={{fontSize:10,color:'#C39BD3',opacity:.6,fontFamily:'monospace'}}>↗</span>
+                </div>
+              </div>
+              <div style={{fontSize:9,opacity:.3,fontFamily:'monospace',letterSpacing:'.05em'}}>IMSLP — TÉLÉCHARGEMENT GRATUIT PDF</div>
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── TABS PAGE ─────────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function TabsPage() {
+  const [filter, setFilter] = useState('tous');
+  const [playing, setPlaying] = useState(null);
+  const cats = ['tous','classique','folk','pop'];
+  const filtered = filter === 'tous' ? SONGS_TABS : SONGS_TABS.filter(s=>s.cat===filter);
+
+  const handleChordClick = (songId, chordIdx, chord) => {
+    setPlaying(`${songId}-${chordIdx}`);
+    playTabChord(chord.n, chord.t);
+    setTimeout(()=>setPlaying(null), 1200);
+  };
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Filter bar */}
+      <div style={{display:'flex',gap:6,padding:'.75rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',flexShrink:0,overflowX:'auto'}}>
+        {cats.map(c=>(
+          <button key={c} onClick={()=>setFilter(c)} style={{padding:'.3rem .8rem',background:filter===c?'rgba(195,155,211,0.15)':'transparent',border:`0.5px solid ${filter===c?'#C39BD3':'rgba(240,235,224,0.15)'}`,color:filter===c?'#C39BD3':'rgba(240,235,224,0.45)',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>
+            {c.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'1rem',display:'flex',flexDirection:'column',gap:10}}>
+        <div style={{padding:'.65rem .9rem',background:'rgba(130,224,170,0.05)',border:'0.5px solid rgba(130,224,170,0.15)',borderRadius:4,fontSize:11,color:'rgba(130,224,170,0.7)',fontFamily:'monospace'}}>
+          🎹 Clique sur un accord pour l'entendre au piano
+        </div>
+
+        {filtered.map(song=>(
+          <div key={song.id} style={{background:'rgba(240,235,224,0.025)',border:'0.5px solid rgba(240,235,224,0.1)',borderRadius:4,padding:'1rem',transition:'all 0.2s'}}>
+            {/* Song header */}
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.75rem'}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif',marginBottom:2}}>{song.title}</div>
+                <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                  <span style={{fontSize:10,opacity:.45,fontFamily:'monospace'}}>{song.artist}</span>
+                  <span style={{fontSize:9,opacity:.3,fontFamily:'monospace'}}>{song.era}</span>
+                </div>
+              </div>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}}>
+                <span style={{fontSize:11,fontFamily:'monospace',color:song.color,padding:'2px 8px',background:`${song.color}15`,border:`0.5px solid ${song.color}40`,borderRadius:2}}>{song.key}</span>
+                <span style={{fontSize:9,opacity:.35,fontFamily:'monospace'}}>{song.bpm} BPM</span>
+              </div>
+            </div>
+            {/* Chord progression */}
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {song.chords.map((chord,ci)=>{
+                const isPlaying = playing === `${song.id}-${ci}`;
+                const cInfo = CHORD_TYPES[chord.t];
+                const noteColor = NOTE_COLORS[chord.n] || '#C39BD3';
+                return (
+                  <button key={ci} onClick={()=>handleChordClick(song.id, ci, chord)}
+                    style={{background:isPlaying?`${noteColor}25`:`${noteColor}10`,border:`0.5px solid ${isPlaying?noteColor:noteColor+'40'}`,borderRadius:3,padding:'.45rem .7rem',cursor:'pointer',transition:'all 0.15s',transform:isPlaying?'scale(1.08)':'scale(1)'}}>
+                    <div style={{fontSize:14,fontWeight:'bold',color:noteColor,fontFamily:'monospace',lineHeight:1}}>{chord.n}{cInfo?.suffix}</div>
+                    <div style={{fontSize:8,opacity:.45,fontFamily:'monospace',marginTop:2}}>{cInfo?.label.split(' ')[0]}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── BIBLIOTHÈQUE PAGE (wrapper) ───────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function BibliothequePage() {
+  const [tab, setTab] = useState('accords');
+  const TABS = [
+    {id:'accords',    label:'Accords',    color:'#C39BD3'},
+    {id:'partitions', label:'Partitions', color:'#85C1E9'},
+    {id:'tabs',       label:'Tabs',       color:'#82E0AA'},
+  ];
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{display:'flex',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.6)',flexShrink:0}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:'.7rem .25rem',background:'none',border:'none',color:tab===t.id?t.color:'rgba(240,235,224,0.3)',cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.05em',borderBottom:tab===t.id?`1.5px solid ${t.color}`:'1.5px solid transparent',transition:'all 0.2s'}}>
+            {t.label.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+        {tab==='accords'    && <AccordsLibrary/>}
+        {tab==='partitions' && <PartitionsPage/>}
+        {tab==='tabs'       && <TabsPage/>}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── SOLFÈGE PAGE ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function SolfegePage() {
+  const [mode, setMode] = useState('reference'); // reference | exercice
+  const [exNote, setExNote] = useState(null);
+  const [answered, setAnswered] = useState(false);
+  const [userAnswer, setUserAnswer] = useState(null);
+  const [score, setScore] = useState({correct:0,total:0});
+
+  const genNote = () => {
+    const n = SOLFEGE_MAP[Math.floor(Math.random()*SOLFEGE_MAP.length)];
+    setExNote(n); setAnswered(false); setUserAnswer(null);
+    playNote(n.semi + 4*12, 0);
+  };
+
+  useEffect(()=>{
+    if(mode==='exercice'){
+      const t = setTimeout(()=>{ genNote(); },0);
+      return ()=>clearTimeout(t);
+    }
+  },[mode]);
+
+  const handleAnswer = (note) => {
+    if(answered) return;
+    setUserAnswer(note.fr); setAnswered(true);
+    const ok = note.fr === exNote.fr;
+    setScore(s=>({correct:s.correct+(ok?1:0), total:s.total+1}));
+    if(ok) playNote(exNote.semi + 4*12, 0);
+  };
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Mode tabs */}
+      <div style={{display:'flex',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.4)',flexShrink:0}}>
+        {[['reference','Référence'],['exercice','Exercice']].map(([id,label])=>(
+          <button key={id} onClick={()=>setMode(id)} style={{flex:1,padding:'.6rem',background:'none',border:'none',color:mode===id?'#F7DC6F':'rgba(240,235,224,0.35)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.08em',borderBottom:mode===id?'1.5px solid #F7DC6F':'1.5px solid transparent',transition:'all 0.2s'}}>
+            {label.toUpperCase()}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'reference' && (
+        <div style={{flex:1,overflowY:'auto',padding:'1rem'}}>
+          <div style={{marginBottom:'1.25rem'}}>
+            <h3 style={{fontSize:16,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.01em'}}>Les 7 notes</h3>
+            <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>SOLFÈGE FRANÇAIS → NOM ANGLAIS</p>
+          </div>
+
+          {/* Reference table */}
+          <div style={{display:'flex',flexDirection:'column',gap:7,marginBottom:'1.5rem'}}>
+            {SOLFEGE_MAP.map(n=>(
+              <div key={n.fr} onClick={()=>playNote(n.semi+4*12,0)} style={{display:'flex',alignItems:'center',gap:12,background:`${n.color}10`,border:`0.5px solid ${n.color}40`,borderRadius:4,padding:'.75rem 1rem',cursor:'pointer',transition:'all 0.2s'}}
+                onMouseEnter={e=>{e.currentTarget.style.background=`${n.color}20`;}}
+                onMouseLeave={e=>{e.currentTarget.style.background=`${n.color}10`;}}>
+                <div style={{width:40,height:40,borderRadius:'50%',background:n.color,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  <span style={{fontSize:16,fontWeight:'bold',color:'#0f0e0c',fontFamily:'Georgia,serif'}}>{n.en}</span>
+                </div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:20,fontWeight:'bold',color:n.color,fontFamily:'Georgia,serif',lineHeight:1}}>{n.fr}</div>
+                  <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',marginTop:2}}>Note n°{n.semi+1} de la gamme chromatique</div>
+                </div>
+                <span style={{fontSize:11,opacity:.35,fontFamily:'monospace'}}>🔊</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Chromatic table */}
+          <div style={{marginBottom:'1rem'}}>
+            <div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.75rem'}}>GAMME CHROMATIQUE COMPLÈTE</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:5}}>
+              {SOLFEGE_CHROM.map(n=>(
+                <div key={n.semi} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'.5rem .75rem',background:'rgba(240,235,224,0.03)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:3}}>
+                  <span style={{fontSize:13,fontWeight:'bold',fontFamily:'monospace',color:'#f0ebe0'}}>{n.fr}</span>
+                  <span style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>{n.en}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {mode === 'exercice' && (
+        <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+          {/* Score */}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'.65rem 1rem',background:'rgba(240,235,224,0.03)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:3}}>
+            <span style={{fontSize:10,opacity:.4,fontFamily:'monospace'}}>SCORE DE SESSION</span>
+            <span style={{fontSize:14,fontWeight:'bold',color:'#F7DC6F',fontFamily:'monospace'}}>{score.correct}/{score.total}</span>
+          </div>
+
+          {/* Note display */}
+          {exNote && (
+            <div style={{textAlign:'center',padding:'1.5rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:4}}>
+              <p style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'1.25rem'}}>QUELLE EST CETTE NOTE EN SOLFÈGE ?</p>
+              <div style={{width:72,height:72,borderRadius:'50%',background:exNote.color,margin:'0 auto 1rem',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,fontWeight:'bold',color:'#0f0e0c',fontFamily:'Georgia,serif'}}>
+                {exNote.en}
+              </div>
+              {answered && (
+                <div style={{animation:'fadeIn 0.3s ease',marginBottom:'.75rem'}}>
+                  <div style={{fontSize:16,fontWeight:'bold',color:userAnswer===exNote.fr?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:4}}>
+                    {userAnswer===exNote.fr?`✓ Oui, c'est ${exNote.fr} !`:`✗ Non — c'est ${exNote.fr}`}
+                  </div>
+                </div>
+              )}
+              <button onClick={()=>exNote&&playNote(exNote.semi+4*12,0)} style={{background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.15)',color:'rgba(240,235,224,0.6)',padding:'.4rem .9rem',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em'}}>
+                🔊 ÉCOUTER
+              </button>
+            </div>
+          )}
+
+          {/* Solfège answer buttons */}
+          <div>
+            <div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>CHOISIR</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
+              {SOLFEGE_MAP.map(n=>{
+                const isUser = userAnswer === n.fr;
+                const isOk = exNote?.fr === n.fr;
+                let bg=`${n.color}10`, border=`${n.color}40`, col=n.color;
+                if(answered){
+                  if(isOk){bg=`${n.color}25`;border=n.color;}
+                  else if(isUser){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}
+                  else{col=`${n.color}50`;}
+                }
+                return(
+                  <button key={n.fr} onClick={()=>handleAnswer(n)} disabled={answered}
+                    style={{background:bg,border:`0.5px solid ${border}`,color:col,padding:'.7rem .25rem',borderRadius:3,cursor:answered?'default':'pointer',fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',transition:'all 0.2s'}}>
+                    {n.fr}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {answered && (
+            <button onClick={genNote} style={{width:'100%',padding:'.9rem',background:'rgba(247,220,111,0.1)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
+              NOTE SUIVANTE →
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── EXERCICES PAGE (wrapper) ──────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function ExercicesPage() {
+  const [sub, setSub] = useState(null);
+  if (sub === 'solfege') return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.7)',flexShrink:0}}>
+        <button onClick={()=>setSub(null)} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:2}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)'}>← EXERCICES</button>
+        <span style={{opacity:.2}}>|</span>
+        <span style={{fontSize:11,fontFamily:'monospace',color:'#F7DC6F',letterSpacing:'.08em'}}>SOLFÈGE</span>
+      </div>
+      <SolfegePage/>
+    </div>
+  );
+
+  const MODS = [
+    {id:'solfege',  icon:'🎼', title:'Solfège',     subtitle:'NOTES · RYTHME · LECTURE', color:'#F7DC6F', ok:true},
+    {id:'lecture',  icon:'📖', title:'Lecture',     subtitle:'DÉCHIFFRAGE DE PARTITIONS', color:'#85C1E9', ok:false},
+    {id:'rythme',   icon:'🥁', title:'Rythme',      subtitle:'DICTÉE RYTHMIQUE',          color:'#82E0AA', ok:false},
+    {id:'impro',    icon:'✨', title:'Improvisation',subtitle:'SCALES & MODES',            color:'#F1948A', ok:false},
+  ];
+  return (
+    <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
+      <div style={{marginBottom:'1.5rem'}}><h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Exercices</h2><p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>PRATIQUE GUIDÉE PAS À PAS</p></div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+        {MODS.map(m=>(
+          <button key={m.id} onClick={()=>m.ok&&setSub(m.id)} style={{background:m.ok?`${m.color}08`:'rgba(240,235,224,0.02)',border:`0.5px solid ${m.ok?m.color+'40':'rgba(240,235,224,0.08)'}`,borderRadius:4,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:m.ok?'pointer':'default',textAlign:'left',opacity:m.ok?1:.5,transition:'all 0.2s'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><span style={{fontSize:26}}>{m.icon}</span>{m.ok?<span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:2}}>DISPONIBLE</span>:<span style={{fontSize:8,fontFamily:'monospace',color:'rgba(240,235,224,0.25)',border:'0.5px solid rgba(240,235,224,0.1)',padding:'2px 5px',borderRadius:2}}>BIENTÔT</span>}</div>
+            <div><div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.ok?m.color:`${m.color}99`,fontFamily:'Georgia,serif'}}>{m.title}</div><div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div></div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Accords Library ───────────────────────────────────────────────────────────
-function AccordsPage(){
+function AccordsLibrary(){
   const [showModal,setShowModal]=useState(false);const[modalStep,setModalStep]=useState('type');
   const [selType,setSelType]=useState(null);const[selRoot,setSelRoot]=useState(null);
   const [inv,setInv]=useState(0);const[showPiano,setShowPiano]=useState(false);
@@ -566,9 +986,9 @@ function AccordsPage(){
 // ── APPRENTISSAGE — landing + sous-sections ───────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 const APPRENTISSAGE_SECTIONS = [
-  {id:'accords', icon:'♩', title:'Bibliothèque', subtitle:'ACCORDS & RENVERSEMENTS', color:'#C39BD3'},
-  {id:'oreille', icon:'👂', title:'Oreille',      subtitle:'ENTRAÎNEMENT AUDITIF',   color:'#85C1E9'},
-  {id:'exercices',icon:'✎',title:'Exercices',    subtitle:'PRATIQUE GUIDÉE',         color:'#82E0AA', lock:true},
+  {id:'accords', icon:'♩', title:'Bibliothèque', subtitle:'ACCORDS · PARTITIONS · TABS', color:'#C39BD3'},
+  {id:'oreille', icon:'👂', title:'Oreille',      subtitle:'ENTRAÎNEMENT AUDITIF',        color:'#85C1E9'},
+  {id:'exercices',icon:'✎',title:'Exercices',    subtitle:'SOLFÈGE & PRATIQUE',           color:'#82E0AA'},
 ];
 
 function ApprentissageLanding({onNavigate}){
@@ -590,7 +1010,7 @@ function ApprentissagePage({sub,setSub}){
   return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
     {/* Back bar */}
     <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.7)',flexShrink:0}}>
-      <button onClick={()=>setSub('landing')} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',display:'flex',alignItems:'center',gap:5,fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:2,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)' }>
+      <button onClick={()=>setSub('landing')} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',gap:5,fontFamily:'monospace',letterSpacing:'.05em',padding:'4px 8px',borderRadius:2,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)'}>
         ← APPRENTISSAGE
       </button>
       {info&&<>
@@ -599,9 +1019,9 @@ function ApprentissagePage({sub,setSub}){
       </>}
     </div>
     <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-      {sub==='accords'&&<AccordsPage/>}
+      {sub==='accords'&&<BibliothequePage/>}
       {sub==='oreille'&&<OreilPage/>}
-      {sub==='exercices'&&<PlaceholderPage title="Exercices" icon="✎" description="DES EXERCICES GUIDÉS ARRIVENT BIENTÔT"/>}
+      {sub==='exercices'&&<ExercicesPage/>}
     </div>
   </div>);
 }
@@ -646,6 +1066,7 @@ export default function ChordApp(){
   const [showDefis,setShowDefis]=useState(false);
   const [stats,setStats]=useState(()=>resetDailyIfNeeded(loadStats()));
 
+  // Register callbacks (assign globals inside effect to avoid reassigning during render)
   useEffect(()=>{
     _updater=(fn)=>{
       setStats(prev=>{
@@ -654,15 +1075,14 @@ export default function ChordApp(){
         s=fn(s,today);
         const daily=getDailyChallenges(today);
         s=checkAndComplete(s,today,daily);
-        saveStats(s);
-        return s;
+        saveStats(s); return s;
       });
     };
     _timeUpdater=(secs)=>{
       setStats(prev=>{const n={...prev,totalSeconds:(prev.totalSeconds||0)+secs};saveStats(n);return n;});
     };
-    return()=>{_updater=null;_timeUpdater=null;};
-  }, []);
+    // no cleanup needed; globals may persist
+  },[]);
 
   useEffect(()=>{
     _sessionStart=Date.now();
