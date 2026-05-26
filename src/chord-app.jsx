@@ -499,7 +499,7 @@ function ChordExercise({config,onFinish,onBack}){
   const chordInfo=ex?CHORD_TYPES[ex.type]:null;
   const rootName=ex?NOTE_NAMES_12[ex.rootSemi]:'';
   const selectedChordTypes=Object.entries(CHORD_TYPES).filter(([t])=>selectedTypes.includes(t));
-  useEffect(()=>{if(!ex)return;const t=setTimeout(()=>playChordArp(ex.notes),400);return()=>clearTimeout(t);},[idx]);
+  useEffect(()=>{if(!ex)return;const t=setTimeout(()=>playChordArp(ex.notes),400);return()=>clearTimeout(t);},[ex]);
   const handleAnswer=(type)=>{
     if(answered)return;const ok=type===ex.type;setUserType(type);setAnswered(true);
     const h=[...history,{catId:type,type:ex.type,correct:ok,userType:type}];setHistory(h);
