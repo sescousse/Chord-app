@@ -144,3 +144,64 @@ export function checkAndComplete(stats, today, dailyChallenges) {
   }
   return s;
 }
+
+// ── Progressions d'improvisation ─────────────────────────────────────────────
+export const IMPRO_PROGRESSIONS = [
+  { id:1, name:"I – V – vi – IV", style:"Pop / Soul",
+    emotion:"La progression la plus universelle. Elle évoque l'espoir mêlé de nostalgie — un voyage émotionnel complet en 4 accords. Omniprésente des Beatles à Adele.",
+    chords:[{r:"C",t:"Majeures",fn:"I"},{r:"G",t:"Majeures",fn:"V"},{r:"A",t:"Mineures",fn:"vi"},{r:"F",t:"Majeures",fn:"IV"}],
+    scales:["Do majeur","Pentatonique majeure"], color:"#85C1E9" },
+  { id:2, name:"ii – V – I", style:"Jazz",
+    emotion:"La progression phare du jazz. La tension du ii-V se résout naturellement sur le I, créant un sentiment de sophistication et de satisfaction harmonique.",
+    chords:[{r:"D",t:"Min. 7",fn:"ii7"},{r:"G",t:"Dom. 7",fn:"V7"},{r:"C",t:"Maj. 7",fn:"Imaj7"}],
+    scales:["Do majeur","Bebop dominante"], color:"#F7DC6F" },
+  { id:3, name:"i – VII – VI – V", style:"Andalou / Flamenco",
+    emotion:"La cadence andalouse. Mystère, passion et intensité dramatique. Très utilisée en flamenco, metal et pop alternative.",
+    chords:[{r:"A",t:"Mineures",fn:"i"},{r:"G",t:"Majeures",fn:"VII"},{r:"F",t:"Majeures",fn:"VI"},{r:"E",t:"Majeures",fn:"V"}],
+    scales:["Phrygien dominant","La mineur harmonique"], color:"#F1948A" },
+  { id:4, name:"I – IV – V – I", style:"Blues / Gospel",
+    emotion:"Le fondement du blues et du gospel. Simple, honnête et profond — communique une énergie directe et une satisfaction rythmique universelle.",
+    chords:[{r:"C",t:"Majeures",fn:"I"},{r:"F",t:"Majeures",fn:"IV"},{r:"G",t:"Majeures",fn:"V"},{r:"C",t:"Majeures",fn:"I"}],
+    scales:["Blues","Pentatonique mineure"], color:"#82E0AA" },
+  { id:5, name:"I – vi – IV – V", style:"Doo-Wop / Pop 50s",
+    emotion:"La progression des années 50. Nostalgique, romantique et intemporelle — évoque l'innocence et les premières amours.",
+    chords:[{r:"C",t:"Majeures",fn:"I"},{r:"A",t:"Mineures",fn:"vi"},{r:"F",t:"Majeures",fn:"IV"},{r:"G",t:"Majeures",fn:"V"}],
+    scales:["Do majeur","Pentatonique majeure"], color:"#AED6F1" },
+  { id:6, name:"i – iv – V – i", style:"Mineur classique",
+    emotion:"Mélancolie profonde et résolution dramatique. Utilisée dans le classique et le métal pour exprimer la douleur et la catharsis.",
+    chords:[{r:"A",t:"Mineures",fn:"i"},{r:"D",t:"Mineures",fn:"iv"},{r:"E",t:"Majeures",fn:"V"},{r:"A",t:"Mineures",fn:"i"}],
+    scales:["La mineur harmonique","Dorien"], color:"#C39BD3" },
+  { id:7, name:"I – III – IV – iv", style:"Romanesque / Film",
+    emotion:"Le borrowed chord crée une couleur doux-amère unique. Très utilisé dans les bandes originales pour des moments de transition émotionnelle.",
+    chords:[{r:"C",t:"Majeures",fn:"I"},{r:"E",t:"Majeures",fn:"III"},{r:"F",t:"Majeures",fn:"IV"},{r:"F",t:"Mineures",fn:"iv"}],
+    scales:["Do majeur","Fa mineur"], color:"#E8A87C" },
+  { id:8, name:"vi – IV – I – V", style:"Pop contemporaine",
+    emotion:"Introspective et mélancolique, elle commence dans l'ombre (vi) pour aboutir à la résolution (V). Omniprésente dans la pop des années 2000.",
+    chords:[{r:"A",t:"Mineures",fn:"vi"},{r:"F",t:"Majeures",fn:"IV"},{r:"C",t:"Majeures",fn:"I"},{r:"G",t:"Majeures",fn:"V"}],
+    scales:["Do majeur","Mode éolien"], color:"#82E0AA" },
+  { id:9, name:"I – V – vi – iii – IV", style:"Pop baroque",
+    emotion:"Dérivée du Canon de Pachelbel, elle crée un sentiment de continuité et de plénitude. La descente de basse canonique est immédiatement reconnaissable.",
+    chords:[{r:"C",t:"Majeures",fn:"I"},{r:"G",t:"Majeures",fn:"V"},{r:"A",t:"Mineures",fn:"vi"},{r:"E",t:"Mineures",fn:"iii"},{r:"F",t:"Majeures",fn:"IV"}],
+    scales:["Do majeur","Ionien"], color:"#85C1E9" },
+  { id:10, name:"i – VI – III – VII", style:"Épique / Metal",
+    emotion:"L'enchaînement de puissance. Évoque l'épique et la détermination. Pilier du metal, de la musique de jeux vidéo et des bandes originales cinématographiques.",
+    chords:[{r:"A",t:"Mineures",fn:"i"},{r:"F",t:"Majeures",fn:"VI"},{r:"C",t:"Majeures",fn:"III"},{r:"G",t:"Majeures",fn:"VII"}],
+    scales:["Mode éolien","Pentatonique mineure"], color:"#F1948A" },
+];
+ 
+// ── Mélodies pour la lecture de partition ────────────────────────────────────
+export const LECTURE_MELODIES = [
+  { id:1, title:"Gamme ascendante",    desc:"Les 8 notes fondamentales en montant",
+    notes:['C4','D4','E4','F4','G4','A4','B4','C5'] },
+  { id:2, title:"Gamme descendante",   desc:"Les 8 notes fondamentales en descendant",
+    notes:['C5','B4','A4','G4','F4','E4','D4','C4'] },
+  { id:3, title:"Mélodie conjointe",   desc:"Notes qui se suivent progressivement",
+    notes:['E4','F4','G4','A4','G4','F4','E4','D4'] },
+  { id:4, title:"Arpège de Do majeur", desc:"Les notes de l'accord de Do — intervalles disjoints",
+    notes:['C4','E4','G4','C5','G4','E4','C4'] },
+  { id:5, title:"Au clair de la lune", desc:"Mélodie traditionnelle française (domaine public)",
+    notes:['C5','C5','C5','D5','E5','D5','C5'] },
+  { id:6, title:"Mélodie sautée",      desc:"Sauts d'intervalles plus larges",
+    notes:['C4','G4','E4','A4','F4','B4','G4','C5'] },
+];
+
