@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 
 // ── Music Theory ──────────────────────────────────────────────────────────────
 const CHROMATIC = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
@@ -921,6 +921,549 @@ const IMPRO_PROGRESSIONS = [
 ];
 
 // ── Page Improvisation ────────────────────────────────────────────────────────
+// ── Cycle des quintes — données ───────────────────────────────────────────────
+const CIRCLE_KEYS = ['C','G','D','A','E','B','F#','Db','Ab','Eb','Bb','F'];
+const CIRCLE_LABELS = {
+  C:'Do',G:'Sol',D:'Ré',A:'La',E:'Mi',B:'Si','F#':'Fa#',Db:'Réb',Ab:'Lab',Eb:'Mib',Bb:'Sib',F:'Fa'
+};
+// Transposition helpers
+function transposeNote(note, semis) {
+  const idx = CHROMATIC.indexOf(note);
+  if (idx === -1) return note;
+  return CHROMATIC[(idx + semis + 12) % 12];
+}
+function transposeChord(rootNote, semis) {
+  return transposeNote(rootNote, semis);
+}
+// Semitone distance from C for each key
+const KEY_SEMI = {C:0,G:7,D:2,A:9,E:4,B:11,'F#':6,Db:1,Ab:8,Eb:3,Bb:10,F:5};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── BACK-TRACK ─────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function BackTrack({ progression, color }) {
+  const [playing, setPlaying] = useState(false);
+  const [bpm, setBpm]         = useState(90);
+  const [curIdx, setCurIdx]   = useState(0);
+  const [beatsLeft, setBeatsLeft] = useState(4);
+  const intervalRef = useRef(null);
+
+  // Each chord plays for `beatsPerChord` beats
+  const beatsPerChord = 4;
+  const msBeat = Math.round(60000 / bpm);
+
+  function stopTrack() {
+    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
+    setPlaying(false); setCurIdx(0); setBeatsLeft(beatsPerChord);
+  }
+
+  function startTrack() {
+    const chords = progression.chords;
+    let beat = 0, chord = 0;
+    setPlaying(true); setCurIdx(0); setBeatsLeft(beatsPerChord);
+
+    // Play first chord immediately
+    const playCurrentChord = (c) => {
+      const chord = chords[c];
+      const ri = CHROMATIC.indexOf(chord.r);
+      if (ri === -1) return;
+      // Bass note (lower octave)
+      playNote(ri + 3*12, 0, (msBeat * beatsPerChord) / 1000 * 0.9);
+      // Chord notes (arpeggio)
+      CHORD_TYPES[chord.t].formula.forEach((interval, i) => {
+        playNote(ri + interval + 4*12, i * 0.06, 1.6);
+      });
+    };
+
+    playCurrentChord(0);
+
+    intervalRef.current = setInterval(() => {
+      beat++;
+      const bl = beatsPerChord - (beat % beatsPerChord);
+      setBeatsLeft(bl === 0 ? beatsPerChord : bl);
+      if (beat % beatsPerChord === 0) {
+        chord = (chord + 1) % chords.length;
+        setCurIdx(chord);
+        playCurrentChord(chord);
+      }
+    }, msBeat);
+  }
+
+  // Cleanup on unmount
+  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
+  // Restart when BPM changes while playing
+  useEffect(() => { if (playing) { stopTrack(); } }, [bpm]);
+
+  const chords = progression.chords;
+
+  return (
+    <div style={{padding:'1rem',background:'rgba(240,235,224,0.02)',border:`0.5px solid ${color}30`,borderRadius:4}}>
+      <div style={{fontSize:10,color,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'1rem'}}>🎵 BACK-TRACK</div>
+
+      {/* Chord display */}
+      <div style={{display:'flex',gap:6,marginBottom:'1rem',flexWrap:'wrap'}}>
+        {chords.map((chord,ci) => {
+          const isActive = playing && curIdx===ci;
+          const nc = NOTE_COLORS[chord.r]||color;
+          return (
+            <div key={ci} style={{padding:'.4rem .7rem',borderRadius:3,
+              background:isActive?`${nc}30`:`${nc}10`,
+              border:`0.5px solid ${isActive?nc:nc+'40'}`,
+              transition:'all 0.15s',transform:isActive?'scale(1.08)':'scale(1)'}}>
+              <div style={{fontSize:13,fontWeight:'bold',color:nc,fontFamily:'monospace',lineHeight:1}}>{chord.r}{CHORD_TYPES[chord.t]?.suffix}</div>
+              {isActive&&<div style={{fontSize:7,opacity:.6,fontFamily:'monospace',marginTop:2,textAlign:'center'}}>{beatsLeft}♩</div>}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* BPM slider */}
+      <div style={{marginBottom:'1rem'}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:'.3rem'}}>
+          <span style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em'}}>TEMPO</span>
+          <span style={{fontSize:11,fontFamily:'monospace',color,fontWeight:'bold'}}>{bpm} BPM</span>
+        </div>
+        <input type="range" min={50} max={160} value={bpm} onChange={e=>setBpm(+e.target.value)}
+          style={{width:'100%',accentColor:color,cursor:'pointer'}}/>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:8,opacity:.3,fontFamily:'monospace',marginTop:2}}>
+          <span>50</span><span>Lent</span><span>Medium</span><span>Rapide</span><span>160</span>
+        </div>
+      </div>
+
+      {/* Play/Stop */}
+      <button onClick={()=>playing?stopTrack():startTrack()}
+        style={{width:'100%',padding:'.75rem',
+          background:playing?'rgba(241,148,138,0.15)':'rgba(130,224,170,0.15)',
+          border:`1px solid ${playing?'#F1948A':'#82E0AA'}`,
+          color:playing?'#F1948A':'#82E0AA',
+          borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',
+          letterSpacing:'.15em',fontWeight:'bold',transition:'all 0.3s'}}>
+        {playing?'■ STOP':'▶ LANCER LE BACK-TRACK'}
+      </button>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── CYCLE DES QUINTES ──────────────────────────────────────────════════════
+// ══════════════════════════════════════════════════════════════════════════════
+function CircleOfFifthsSVG({ doneKeys, currentKey, color }) {
+  const cx=130, cy=130, r=95, ir=58;
+  const n=CIRCLE_KEYS.length;
+  return (
+    <svg viewBox="0 0 260 260" style={{width:'100%',maxWidth:260,display:'block',margin:'0 auto'}}>
+      {CIRCLE_KEYS.map((key,i) => {
+        const angle = (i/n)*2*Math.PI - Math.PI/2;
+        const x = cx + r*Math.cos(angle), y = cy + r*Math.sin(angle);
+        const isDone = doneKeys.includes(key);
+        const isCur  = currentKey === key;
+        return (
+          <g key={key}>
+            <circle cx={x} cy={y} r={20}
+              fill={isCur?color:isDone?`${color}30`:'rgba(240,235,224,0.05)'}
+              stroke={isCur?color:isDone?`${color}60`:'rgba(240,235,224,0.15)'}
+              strokeWidth={isCur?2:1}/>
+            <text x={x} y={y+4} textAnchor="middle" fontSize={11}
+              fill={isCur?'#0f0e0c':isDone?color:'rgba(240,235,224,0.5)'}
+              fontFamily="monospace" fontWeight={isCur||isDone?'bold':'normal'}>
+              {key}
+            </text>
+          </g>
+        );
+      })}
+      {/* Centre */}
+      <circle cx={cx} cy={cy} r={ir} fill="none" stroke="rgba(240,235,224,0.06)" strokeWidth={1}/>
+      <text x={cx} y={cy-8} textAnchor="middle" fontSize={9} fill="rgba(240,235,224,0.3)" fontFamily="monospace">CYCLE</text>
+      <text x={cx} y={cy+6} textAnchor="middle" fontSize={9} fill="rgba(240,235,224,0.3)" fontFamily="monospace">DES</text>
+      <text x={cx} y={cy+20} textAnchor="middle" fontSize={9} fill="rgba(240,235,224,0.3)" fontFamily="monospace">QUINTES</text>
+    </svg>
+  );
+}
+
+function CycleQuintesExercice() {
+  const PROG_TYPES = [
+    { id:'ii-V-I',   label:'ii – V – I',    desc:'Standard jazz',     color:'#F7DC6F',
+      build:(key)=>{ const s=KEY_SEMI[key]||0; return [
+        {r:transposeChord('D',s-2+12),t:'Min. 7', fn:'ii7'},
+        {r:transposeChord('G',s+5),   t:'Dom. 7', fn:'V7'},
+        {r:transposeChord('C',s),     t:'Maj. 7', fn:'Imaj7'},
+      ];}},
+    { id:'I-IV-V',   label:'I – IV – V',    desc:'Blues / Pop',       color:'#82E0AA',
+      build:(key)=>{ const s=KEY_SEMI[key]||0; return [
+        {r:transposeChord('C',s),t:'Majeures',fn:'I'},
+        {r:transposeChord('F',s+5),t:'Majeures',fn:'IV'},
+        {r:transposeChord('G',s+7),t:'Majeures',fn:'V'},
+      ];}},
+    { id:'I-V-vi-IV',label:'I – V – vi – IV',desc:'Pop universelle',  color:'#85C1E9',
+      build:(key)=>{ const s=KEY_SEMI[key]||0; return [
+        {r:transposeChord('C',s),t:'Majeures',fn:'I'},
+        {r:transposeChord('G',s+7),t:'Majeures',fn:'V'},
+        {r:transposeChord('A',s+9),t:'Mineures',fn:'vi'},
+        {r:transposeChord('F',s+5),t:'Majeures',fn:'IV'},
+      ];}},
+  ];
+
+  const [screen, setScreen]       = useState('config'); // config | exercise | results
+  const [progType, setProgType]   = useState(PROG_TYPES[0]);
+  const [keyOrder, setKeyOrder]   = useState([...CIRCLE_KEYS]);
+  const [keyIdx, setKeyIdx]       = useState(0);
+  const [doneKeys, setDoneKeys]   = useState([]);
+  const [errors, setErrors]       = useState(0);
+  const [answered, setAnswered]   = useState(false);
+  const [userChords, setUserChords] = useState([]);
+
+  const currentKey = keyOrder[keyIdx];
+  const targetChords = progType.build(currentKey);
+
+  function startExercise() {
+    // Shuffle starting point but keep circle order
+    setKeyIdx(0); setDoneKeys([]); setErrors(0); setAnswered(false); setUserChords([]);
+    setScreen('exercise');
+    // Play the progression as example
+    setTimeout(()=>playProgressionInKey(currentKey), 400);
+  }
+
+  function playProgressionInKey(key) {
+    const chords = progType.build(key);
+    chords.forEach((chord,i) => {
+      const ri = CHROMATIC.indexOf(chord.r);
+      if(ri===-1)return;
+      setTimeout(()=>playChordArp(CHORD_TYPES[chord.t].formula.map(f=>ri+f+4*12)), i*1100);
+    });
+  }
+
+  function handleUserChord(chordIdx, root, type) {
+    const next = [...userChords];
+    next[chordIdx] = { root, type };
+    setUserChords(next);
+  }
+
+  function validateAnswer() {
+    const allCorrect = targetChords.every((tc,i)=>{
+      const uc = userChords[i];
+      return uc && uc.root===tc.r && uc.type===tc.t;
+    });
+    setAnswered(true);
+    if (!allCorrect) setErrors(e=>e+1);
+  }
+
+  function nextKey() {
+    const newDone = [...doneKeys, currentKey];
+    setDoneKeys(newDone);
+    if (keyIdx >= keyOrder.length-1) { setScreen('results'); return; }
+    setKeyIdx(i=>i+1);
+    setAnswered(false); setUserChords([]);
+    setTimeout(()=>playProgressionInKey(keyOrder[keyIdx+1]), 400);
+  }
+
+  if (screen==='config') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem',letterSpacing:'-.01em'}}>Cycle des quintes</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>JOUER UNE PROGRESSION DANS LES 12 TONALITÉS</p>
+      </div>
+      <div style={{padding:'1rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.15)',borderRadius:4,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>
+          L'app joue la progression dans chaque tonalité du cycle. Tu dois l'identifier et la reconstruire. Parcours les 12 tonalités pour compléter le tour.
+        </p>
+      </div>
+      {/* Circle preview */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <CircleOfFifthsSVG doneKeys={[]} currentKey="C" color="#F7DC6F"/>
+      </div>
+      {/* Progression type selection */}
+      <div style={{marginBottom:'1.5rem'}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.65rem'}}>PROGRESSION À TRAVAILLER</div>
+        <div style={{display:'flex',flexDirection:'column',gap:7}}>
+          {PROG_TYPES.map(pt=>(
+            <button key={pt.id} onClick={()=>setProgType(pt)}
+              style={{background:progType.id===pt.id?`${pt.color}15`:'rgba(240,235,224,0.03)',border:`0.5px solid ${progType.id===pt.id?pt.color:'rgba(240,235,224,0.1)'}`,borderRadius:3,padding:'.75rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:'bold',color:progType.id===pt.id?pt.color:'#f0ebe0',fontFamily:'Georgia,serif',marginBottom:2}}>{pt.label}</div>
+                <div style={{fontSize:10,opacity:.4,fontFamily:'monospace'}}>{pt.desc}</div>
+              </div>
+              {progType.id===pt.id&&<span style={{color:pt.color,fontSize:14}}>✓</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button onClick={startExercise}
+        style={{width:'100%',padding:'1rem',background:'rgba(247,220,111,0.15)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold'}}>
+        COMMENCER LE TOUR →
+      </button>
+    </div>
+  );
+
+  if (screen==='results') {
+    const pct = Math.round(((CIRCLE_KEYS.length-errors)/CIRCLE_KEYS.length)*100);
+    const mc = pct>=90?'#82E0AA':pct>=70?'#85C1E9':'#F7DC6F';
+    return (
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.2)',borderRadius:4}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>TOUR DU CYCLE TERMINÉ !</div>
+          <CircleOfFifthsSVG doneKeys={CIRCLE_KEYS} currentKey={null} color="#82E0AA"/>
+          <div style={{fontSize:22,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',marginTop:'1rem'}}>{pct}% de réussite</div>
+          <div style={{fontSize:13,opacity:.5,fontFamily:'monospace',marginTop:4}}>{errors} erreur{errors!==1?'s':''} sur 12 tonalités</div>
+        </div>
+        <button onClick={()=>{ setScreen('config'); setDoneKeys([]); setErrors(0); }}
+          style={{padding:'.9rem',background:'rgba(247,220,111,0.15)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold'}}>
+          ↩ RECOMMENCER
+        </button>
+      </div>
+    );
+  }
+
+  // Exercise screen
+  const allFilled = targetChords.every((_,i)=>userChords[i]?.root && userChords[i]?.type);
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Progress header */}
+      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div style={{flex:1,marginRight:'1rem'}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+            <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{keyIdx+1}/12</span>
+            <span style={{fontSize:10,fontFamily:'monospace',color:'#F7DC6F'}}>{errors} erreur{errors!==1?'s':''}</span>
+          </div>
+          <div style={{height:3,background:'rgba(240,235,224,0.08)',borderRadius:2}}>
+            <div style={{height:'100%',width:`${(keyIdx/12)*100}%`,background:'#F7DC6F',borderRadius:2,transition:'width 0.4s ease'}}/>
+          </div>
+        </div>
+        <CircleOfFifthsSVG doneKeys={doneKeys} currentKey={currentKey} color={progType.color}/>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Key + instruction */}
+        <div style={{textAlign:'center',padding:'1.25rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.15)',borderRadius:4}}>
+          <div style={{fontSize:11,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.75rem'}}>TONALITÉ ACTUELLE</div>
+          <div style={{fontSize:56,fontWeight:'bold',color:'#F7DC6F',fontFamily:'Georgia,serif',lineHeight:1,marginBottom:6}}>
+            {CIRCLE_LABELS[currentKey]||currentKey}
+          </div>
+          <div style={{fontSize:12,opacity:.45,fontFamily:'monospace'}}>{progType.label} en {currentKey}</div>
+          <button onClick={()=>playProgressionInKey(currentKey)}
+            style={{marginTop:'.75rem',background:'rgba(247,220,111,0.08)',border:'0.5px solid rgba(247,220,111,0.3)',color:'#F7DC6F',padding:'.4rem 1rem',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em'}}>
+            🔊 RÉÉCOUTER
+          </button>
+        </div>
+
+        {/* Chord selection for each position */}
+        {targetChords.map((tc,ci) => {
+          const uc = userChords[ci];
+          const isCorrect = answered && uc && uc.root===tc.r && uc.type===tc.t;
+          const isWrong   = answered && !(uc && uc.root===tc.r && uc.type===tc.t);
+          return (
+            <div key={ci} style={{padding:'.85rem',background:'rgba(240,235,224,0.025)',border:`0.5px solid ${answered?(isCorrect?'rgba(130,224,170,0.3)':'rgba(241,148,138,0.3)'):'rgba(240,235,224,0.1)'}`,borderRadius:4}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.6rem'}}>
+                <span style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>ACCORD {ci+1} — {tc.fn}</span>
+                {answered && <span style={{fontSize:12,color:isCorrect?'#82E0AA':'#F1948A'}}>{isCorrect?'✓':` ✗ → ${tc.r}${CHORD_TYPES[tc.t]?.suffix}`}</span>}
+              </div>
+              {!answered && (
+                <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                  {/* Root selection */}
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:4}}>
+                    {ROOT_NOTES.map(root=>{
+                      const nc=NOTE_COLORS[root]||'#C39BD3',sel=uc?.root===root;
+                      return <button key={root} onClick={()=>handleUserChord(ci,root,uc?.type)}
+                        style={{background:sel?`${nc}25`:`${nc}10`,border:`0.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.4rem .1rem',borderRadius:2,cursor:'pointer',fontSize:11,fontFamily:'monospace',fontWeight:sel?'bold':'normal',transition:'all 0.15s'}}>
+                        {root}
+                      </button>;
+                    })}
+                  </div>
+                  {/* Type selection */}
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
+                    {Object.entries(CHORD_TYPES).map(([t,{label}])=>{
+                      const tc2=CHORD_COLORS[t]||'#C39BD3',sel=uc?.type===t;
+                      return <button key={t} onClick={()=>handleUserChord(ci,uc?.root,t)}
+                        style={{background:sel?`${tc2}22`:`${tc2}08`,border:`0.5px solid ${sel?tc2:tc2+'30'}`,color:sel?tc2:`${tc2}99`,padding:'.4rem .25rem',borderRadius:2,cursor:'pointer',fontSize:9,fontFamily:'monospace',transition:'all 0.15s'}}>
+                        {label}
+                      </button>;
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {!answered ? (
+          <button onClick={validateAnswer} disabled={!allFilled}
+            style={{width:'100%',padding:'.9rem',background:allFilled?'rgba(247,220,111,0.15)':'rgba(240,235,224,0.03)',border:`1px solid ${allFilled?'#F7DC6F':'rgba(240,235,224,0.1)'}`,color:allFilled?'#F7DC6F':'rgba(240,235,224,0.25)',borderRadius:3,cursor:allFilled?'pointer':'not-allowed',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',transition:'all 0.3s'}}>
+            VALIDER →
+          </button>
+        ) : (
+          <button onClick={nextKey}
+            style={{width:'100%',padding:'.9rem',background:'rgba(130,224,170,0.1)',border:'1px solid #82E0AA',color:'#82E0AA',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
+            {keyIdx>=keyOrder.length-1?'VOIR LES RÉSULTATS →':'TONALITÉ SUIVANTE →'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── MODE TRANSPOSITION ────────────────────────────────════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+function TranspositionExercice() {
+  const [screen, setScreen]    = useState('config'); // config|exercise|results
+  const [song, setSong]        = useState(null);
+  const [targetKey, setTargetKey] = useState(null);
+  const [userChords, setUserChords] = useState([]);
+  const [answered, setAnswered] = useState([]);
+  const [score, setScore]      = useState({correct:0,total:0});
+
+  // Compute correct transposition
+  const origKeySemi = song ? (KEY_SEMI[song.chords[0]?.n] ?? 0) : 0;
+  const targetSemi  = targetKey ? (KEY_SEMI[targetKey] ?? 0) : 0;
+  const delta = ((targetSemi - origKeySemi) + 12) % 12;
+
+  const correctChords = song ? song.chords.map(c => ({
+    r: transposeChord(c.n, delta),
+    t: c.t,
+    origName: c.n + (CHORD_TYPES[c.t]?.suffix||''),
+  })) : [];
+
+  function startExercise() {
+    if (!song || !targetKey) return;
+    setUserChords(Array(song.chords.length).fill(null));
+    setAnswered(Array(song.chords.length).fill(false));
+    setScore({correct:0,total:0});
+    setScreen('exercise');
+  }
+
+  function handleAnswer(ci, root) {
+    if (answered[ci]) return;
+    const correct = root === correctChords[ci].r;
+    const newAnswered = [...answered]; newAnswered[ci] = true;
+    const newUser = [...userChords]; newUser[ci] = root;
+    setAnswered(newAnswered); setUserChords(newUser);
+    setScore(s=>({correct:s.correct+(correct?1:0), total:s.total+1}));
+    // Play the chord
+    const ri = CHROMATIC.indexOf(root);
+    if(ri!==-1) playChordArp(CHORD_TYPES[correctChords[ci].t].formula.map(f=>ri+f+4*12));
+    // Check if all done
+    if (newAnswered.every(Boolean)) setTimeout(()=>setScreen('results'),800);
+  }
+
+  if (screen==='config') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem',letterSpacing:'-.01em'}}>Transposition</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>TRANSPOSER UNE PROGRESSION DANS UNE AUTRE TONALITÉ</p>
+      </div>
+      <div style={{padding:'1rem',background:'rgba(133,193,233,0.05)',border:'0.5px solid rgba(133,193,233,0.15)',borderRadius:4,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>
+          Choisis une grille, puis une tonalité cible. Pour chaque accord, retrouve la bonne transposition en cliquant sur la note racine.
+        </p>
+      </div>
+
+      {/* Song selection */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.65rem'}}>GRILLE À TRANSPOSER</div>
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          {SONGS_TABS.slice(0,8).map(s=>(
+            <button key={s.id} onClick={()=>setSong(s)}
+              style={{background:song?.id===s.id?`${s.color}15`:'rgba(240,235,224,0.03)',border:`0.5px solid ${song?.id===s.id?s.color:'rgba(240,235,224,0.1)'}`,borderRadius:3,padding:'.65rem .9rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <span style={{fontSize:13,fontWeight:'bold',color:song?.id===s.id?s.color:'#f0ebe0',fontFamily:'Georgia,serif'}}>{s.title}</span>
+                <span style={{fontSize:10,opacity:.4,fontFamily:'monospace',marginLeft:8}}>{s.key}</span>
+              </div>
+              <div style={{display:'flex',gap:4,flexWrap:'wrap',maxWidth:'50%',justifyContent:'flex-end'}}>
+                {s.chords.slice(0,4).map((c,ci)=>(
+                  <span key={ci} style={{fontSize:9,fontFamily:'monospace',color:NOTE_COLORS[c.n]||'#C39BD3',padding:'1px 5px',background:`${NOTE_COLORS[c.n]||'#C39BD3'}15`,borderRadius:2}}>
+                    {c.n}{CHORD_TYPES[c.t]?.suffix}
+                  </span>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Target key */}
+      {song && (
+        <div style={{marginBottom:'1.5rem'}}>
+          <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.65rem'}}>TONALITÉ CIBLE</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5}}>
+            {CIRCLE_KEYS.filter(k=>k!==song.chords[0]?.n).map(k=>{
+              const nc=NOTE_COLORS[k]||'#C39BD3',sel=targetKey===k;
+              return <button key={k} onClick={()=>setTargetKey(k)}
+                style={{background:sel?`${nc}22`:`${nc}10`,border:`0.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.6rem .25rem',borderRadius:2,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}>
+                {k}
+              </button>;
+            })}
+          </div>
+        </div>
+      )}
+
+      <button onClick={startExercise} disabled={!song||!targetKey}
+        style={{width:'100%',padding:'1rem',background:song&&targetKey?'rgba(133,193,233,0.15)':'rgba(240,235,224,0.03)',border:`1px solid ${song&&targetKey?'#85C1E9':'rgba(240,235,224,0.1)'}`,color:song&&targetKey?'#85C1E9':'rgba(240,235,224,0.25)',borderRadius:3,cursor:song&&targetKey?'pointer':'not-allowed',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',transition:'all 0.3s'}}>
+        COMMENCER →
+      </button>
+    </div>
+  );
+
+  if (screen==='results') {
+    const pct=Math.round((score.correct/score.total)*100),mc=pct>=90?'#82E0AA':pct>=70?'#85C1E9':pct>=50?'#F7DC6F':'#F1948A';
+    return (
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:'rgba(133,193,233,0.05)',border:'0.5px solid rgba(133,193,233,0.2)',borderRadius:4}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS — TRANSPOSITION</div>
+          <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
+          <div style={{fontSize:20,color:mc,marginBottom:'.5rem'}}>{pct}%</div>
+          <div style={{fontSize:12,opacity:.5,fontFamily:'monospace'}}>{song?.title} → tonalité {targetKey}</div>
+        </div>
+        <button onClick={()=>{setScreen('config');setSong(null);setTargetKey(null);}} style={{padding:'.9rem',background:'rgba(133,193,233,0.15)',border:'1px solid #85C1E9',color:'#85C1E9',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold'}}>↩ NOUVELLE TRANSPOSITION</button>
+      </div>
+    );
+  }
+
+  // Exercise
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <span style={{fontSize:11,fontFamily:'Georgia,serif',opacity:.7}}>{song?.title}</span>
+        <span style={{fontSize:11,fontFamily:'monospace',color:'#85C1E9'}}>→ tonalité {targetKey}</span>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'.75rem'}}>
+        <div style={{padding:'.75rem',background:'rgba(133,193,233,0.05)',border:'0.5px solid rgba(133,193,233,0.12)',borderRadius:4,marginBottom:'.25rem'}}>
+          <p style={{fontSize:11,opacity:.55,margin:0,fontFamily:'monospace'}}>Clique sur la bonne note racine pour chaque accord transposé. Le type d'accord reste identique.</p>
+        </div>
+        {correctChords.map((tc,ci)=>{
+          const isAnswered=answered[ci], userRoot=userChords[ci], isCorrect=userRoot===tc.r;
+          return (
+            <div key={ci} style={{padding:'.85rem',background:'rgba(240,235,224,0.025)',border:`0.5px solid ${isAnswered?(isCorrect?'rgba(130,224,170,0.3)':'rgba(241,148,138,0.3)'):'rgba(240,235,224,0.1)'}`,borderRadius:4,transition:'border-color 0.3s'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.6rem'}}>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <span style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>Accord {ci+1}</span>
+                  <span style={{fontSize:13,fontFamily:'monospace',color:'rgba(240,235,224,0.5)'}}>{tc.origName}</span>
+                  <span style={{fontSize:11,opacity:.3}}>→</span>
+                  <span style={{fontSize:13,fontFamily:'monospace',color:isAnswered?(isCorrect?'#82E0AA':'#F1948A'):'rgba(240,235,224,0.3)',fontWeight:isAnswered?'bold':'normal'}}>
+                    {isAnswered ? `${tc.r}${CHORD_TYPES[tc.t]?.suffix}` : '?'}
+                    {CHORD_TYPES[tc.t]?.label && !isAnswered && <span style={{fontSize:9,opacity:.4}}> ({CHORD_TYPES[tc.t].label})</span>}
+                  </span>
+                </div>
+                {isAnswered&&<span style={{fontSize:14,color:isCorrect?'#82E0AA':'#F1948A'}}>{isCorrect?'✓':'✗'}</span>}
+              </div>
+              {!isAnswered&&(
+                <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:4}}>
+                  {ROOT_NOTES.map(root=>{
+                    const nc=NOTE_COLORS[root]||'#C39BD3';
+                    return <button key={root} onClick={()=>handleAnswer(ci,root)}
+                      style={{background:`${nc}10`,border:`0.5px solid ${nc}40`,color:nc,padding:'.45rem .1rem',borderRadius:2,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.15s'}}
+                      onMouseEnter={e=>{e.currentTarget.style.background=`${nc}25`;e.currentTarget.style.transform='scale(1.04)';}}
+                      onMouseLeave={e=>{e.currentTarget.style.background=`${nc}10`;e.currentTarget.style.transform='scale(1)';}}>
+                      {root}
+                    </button>;
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ImproPage() {
   const [selected, setSelected] = useState(null);
   const [activeChord, setActiveChord] = useState(null);
@@ -1030,6 +1573,9 @@ function ImproPage() {
                 ))}
               </div>
             </div>
+
+            {/* Back-Track */}
+            <BackTrack progression={selected} color={selected.color}/>
           </div>
         </div>
       ) : (
@@ -1544,10 +2090,12 @@ function ExercicesPage() {
   const [sub, setSub] = useState(null);
 
   const MODS = [
-    {id:'solfege',   icon:'🎼', title:'Solfège',              subtitle:'NOTES · GAMMES · LECTURE', color:'#F7DC6F', ok:true},
-    {id:'lecture',   icon:'📖', title:'Lecture de partition', subtitle:'IDENTIFIER LES NOTES',     color:'#85C1E9', ok:true},
-    {id:'flashcards',icon:'⚡', title:'Speed Flashcards',     subtitle:'MÉMORISATION RÉFLEXE',      color:'#F1948A', ok:true},
-    {id:'rythme',    icon:'🥁', title:'Rythme',               subtitle:'DICTÉE RYTHMIQUE',         color:'#82E0AA', ok:false},
+    {id:'solfege',      icon:'🎼', title:'Solfège',              subtitle:'NOTES · GAMMES · LECTURE', color:'#F7DC6F', ok:true},
+    {id:'lecture',      icon:'📖', title:'Lecture de partition', subtitle:'IDENTIFIER LES NOTES',     color:'#85C1E9', ok:true},
+    {id:'flashcards',   icon:'⚡', title:'Speed Flashcards',     subtitle:'MÉMORISATION RÉFLEXE',      color:'#F1948A', ok:true},
+    {id:'cycle',        icon:'🔄', title:'Cycle des quintes',    subtitle:'12 TONALITÉS',              color:'#F7DC6F', ok:true},
+    {id:'transposition',icon:'↔', title:'Transposition',        subtitle:'CHANGER DE TONALITÉ',       color:'#85C1E9', ok:true},
+    {id:'rythme',       icon:'🥁', title:'Rythme',               subtitle:'DICTÉE RYTHMIQUE',         color:'#82E0AA', ok:false},
     {id:'impro',   icon:'✨', title:'Improvisation',         subtitle:'SCALES & MODES',           color:'#F1948A', ok:false},
   ];
 
@@ -1561,9 +2109,11 @@ function ExercicesPage() {
           <span style={{fontSize:11,fontFamily:'monospace',color:info?.color,letterSpacing:'.08em'}}>{info?.title.toUpperCase()}</span>
         </div>
         <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-          {sub==='solfege'    && <SolfegePage/>}
-          {sub==='lecture'    && <LectureExercice/>}
-          {sub==='flashcards' && <SpeedFlashcards/>}
+          {sub==='solfege'      && <SolfegePage/>}
+          {sub==='lecture'      && <LectureExercice/>}
+          {sub==='flashcards'   && <SpeedFlashcards/>}
+          {sub==='cycle'        && <CycleQuintesExercice/>}
+          {sub==='transposition'&& <TranspositionExercice/>}
         </div>
       </div>
     );
