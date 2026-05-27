@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 
 // ── Music Theory ──────────────────────────────────────────────────────────────
 const CHROMATIC = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
@@ -26,6 +26,48 @@ const TIPS = [
   { level:"Intermédiaire", text:"Essaie II-V-I : Dm7 → G7 → Cmaj7. La base de milliers de standards jazz." },
   { level:"Intermédiaire", text:"L'accord mineur majeur 7 crée une atmosphère mystérieuse très utilisée en musique de film." },
 ];
+
+// ── Conseils par catégorie ────────────────────────────────────────────────────
+const CATEGORY_TIPS = {
+  repertoire: [
+    { title:"Explorer les renversements", text:"Un accord en position fondamentale peut sonner lourd. Essaie le 1er renversement pour alléger la basse et créer une ligne mélodique descendante." },
+    { title:"Apprendre par morceaux", text:"Plutôt que d'apprendre un accord isolé, apprends-le dans le contexte d'une progression. Ton cerveau retient mieux les enchaînements que les accords seuls." },
+    { title:"La cohérence des doigtés", text:"Garde toujours le même doigté pour un accord dans un contexte similaire. La régularité crée l'automatisme — ton but est de ne plus penser au doigté." },
+  ],
+  oreille: [
+    { title:"La méthode de l'ancre", text:"Associe chaque intervalle à une mélodie que tu connais. La quarte juste = début de 'Here Comes the Bride'. La tierce majeure = début de 'When the Saints'. Ces ancres sont infaillibles." },
+    { title:"Chanter ce qu'on entend", text:"Avant de cliquer ta réponse, chante mentalement l'intervalle. Si tu l'entends intérieurement avec précision, tu le reconnaîtras plus facilement à l'oreille externe." },
+    { title:"Travailler par familles", text:"Ne travaille pas tous les intervalles en même temps. Maîtrise d'abord les tierces (majeure/mineure), puis les quintes, puis les septièmes. La confusion vient de trop vouloir en faire à la fois." },
+  ],
+  technique: [
+    { title:"La lenteur est une vitesse", text:"Travailler lentement n'est pas une perte de temps — c'est construire la bonne connexion neuromusculaire. 10 minutes à tempo lent vaut mieux qu'1 heure à tempo approximatif." },
+    { title:"Le solfège, c'est une langue", text:"Lire une partition c'est comme lire un texte : au début tu déchiffres lettre par lettre, puis tu lis des mots entiers. L'objectif est de voir un accord et l'entendre mentalement avant de jouer." },
+    { title:"La constance prime sur l'intensité", text:"15 minutes chaque jour bat 2 heures le week-end. Le cerveau consolide les apprentissages pendant le sommeil — la régularité est donc plus efficace que les marathon de pratique." },
+  ],
+  theorie: [
+    { title:"Comprendre avant de mémoriser", text:"Ne mémorise pas les règles harmoniques — comprends-les. Pourquoi le V7 veut résoudre sur le I ? Parce que la sensible (7e degré) monte et que la 7te de dominante descend. C'est de la physique harmonique." },
+    { title:"Partir du concret", text:"Chaque concept théorique devrait s'ancrer dans quelque chose que tu connais déjà. La dominante secondaire ? C'est simplement 'le V7 de n'importe quel accord'. Trouve toujours l'exemple musical concret." },
+    { title:"La théorie est descriptive", text:"La théorie musicale n'est pas un ensemble de lois — c'est une description de ce que les musiciens ont fait. Si ça sonne bien, c'est bien. La théorie t'explique pourquoi ça sonne bien." },
+  ],
+};
+
+// ── Données du Journal de pratique ───────────────────────────────────────────
+const JOURNAL_KEY = 'cs_journal_v1';
+function loadJournal() {
+  try { return JSON.parse(localStorage.getItem(JOURNAL_KEY)||'{}'); }
+  catch { return {}; }
+}
+function saveJournal(j) {
+  try { localStorage.setItem(JOURNAL_KEY, JSON.stringify(j)); } catch {}
+}
+// Goal defaults
+const GOAL_KEY = 'cs_goals_v1';
+const DEFAULT_GOALS = { weeklyMins:150, longTermMins:3000 };
+function loadGoals() {
+  try { return { ...DEFAULT_GOALS, ...JSON.parse(localStorage.getItem(GOAL_KEY)||'{}') }; }
+  catch { return { ...DEFAULT_GOALS }; }
+}
+function saveGoals(g) { try { localStorage.setItem(GOAL_KEY, JSON.stringify(g)); } catch {} }
 
 // ── Piano data ────────────────────────────────────────────────────────────────
 const PIANO_KEYS_DATA = [
@@ -215,6 +257,246 @@ function TipPopup({tip,onClose,onNext}){
     <p style={{fontSize:13.5,lineHeight:1.65,opacity:.78,margin:'0 0 1rem',fontFamily:'Georgia,serif'}}>{tip.text}</p>
     <button onClick={onNext} style={{background:'transparent',border:'0.5px solid rgba(240,235,224,0.15)',color:'rgba(240,235,224,0.4)',padding:'.4rem .75rem',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.1em'}} onMouseEnter={e=>{e.currentTarget.style.color='rgba(240,235,224,0.7)';e.currentTarget.style.borderColor='rgba(240,235,224,0.3)';}} onMouseLeave={e=>{e.currentTarget.style.color='rgba(240,235,224,0.4)';e.currentTarget.style.borderColor='rgba(240,235,224,0.15)';}}>CONSEIL SUIVANT →</button>
   </div>);
+}
+
+// ── Popup conseil par catégorie ───────────────────────────────────────────────
+function CategoryTipPopup({ category, color, onClose }) {
+  const tips = CATEGORY_TIPS[category] || [];
+  const [idx, setIdx] = useState(0);
+  const tip = tips[idx];
+  if (!tip) return null;
+  return (
+    <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:180,backdropFilter:'blur(4px)',padding:'0 0 5rem'}}>
+      <div style={{width:'min(420px,92vw)',background:'#161512',border:`0.5px solid ${color}40`,borderRadius:6,padding:'1.25rem',animation:'slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1)',boxShadow:'0 8px 40px rgba(0,0,0,0.6)'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.85rem'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <div style={{width:8,height:8,borderRadius:'50%',background:color}}/>
+            <span style={{fontSize:10,letterSpacing:'.15em',fontFamily:'monospace',color,opacity:.85}}>CONSEIL · {idx+1}/{tips.length}</span>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'#f0ebe0',opacity:.35,cursor:'pointer',fontSize:18,lineHeight:1}}>×</button>
+        </div>
+        <div style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',marginBottom:'.65rem',color:'#f0ebe0'}}>{tip.title}</div>
+        <p style={{fontSize:13,lineHeight:1.7,opacity:.72,margin:'0 0 1rem',fontFamily:'Georgia,serif'}}>{tip.text}</p>
+        <div style={{display:'flex',gap:8}}>
+          {idx < tips.length-1 && (
+            <button onClick={()=>setIdx(i=>i+1)} style={{flex:1,padding:'.55rem',background:`${color}15`,border:`0.5px solid ${color}50`,color,borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>
+              SUIVANT →
+            </button>
+          )}
+          <button onClick={onClose} style={{flex:1,padding:'.55rem',background:'transparent',border:'0.5px solid rgba(240,235,224,0.15)',color:'rgba(240,235,224,0.45)',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>
+            COMMENCER
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Speed Flashcards ──────────────────────────────────────────────────────────
+function SpeedFlashcards() {
+  const ALL_CHORDS = [];
+  Object.entries(CHORD_TYPES).forEach(([type,{suffix,label}]) => {
+    ROOT_NOTES.forEach(root => {
+      ALL_CHORDS.push({ root, type, name: root+suffix, label });
+    });
+  });
+  const [config, setConfig]   = useState(null); // null = config screen
+  const [card, setCard]       = useState(null);
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [answered, setAnswered] = useState(false);
+  const [userRoot, setUserRoot] = useState(null);
+  const [userType, setUserType] = useState(null);
+  const [score, setScore]     = useState({correct:0,total:0});
+  const [round, setRound]     = useState(0);
+  const [done, setDone]       = useState(false);
+  const [phase, setPhase]     = useState('root'); // 'root' | 'type' - two-step answer
+
+  const genCard = () => {
+    const c = ALL_CHORDS[Math.floor(Math.random()*ALL_CHORDS.length)];
+    setCard(c); setAnswered(false); setUserRoot(null); setUserType(null); setPhase('root');
+    setTimeLeft(config?.secs||5);
+  };
+
+  // Timer countdown
+  useEffect(() => {
+    if (!card || answered || done) return;
+    if (timeLeft <= 0) { handleTimeout(); return; }
+    const t = setTimeout(() => setTimeLeft(s => s-1), 1000);
+    return () => clearTimeout(t);
+  }, [timeLeft, card, answered, done]);
+
+  function handleTimeout() {
+    setAnswered(true);
+    setScore(s => ({correct:s.correct, total:s.total+1}));
+  }
+  function handleRootAnswer(root) {
+    setUserRoot(root);
+    setPhase('type');
+  }
+  function handleTypeAnswer(type) {
+    if (!card) return;
+    setUserType(type); setAnswered(true);
+    const ok = userRoot===card.root && type===card.type;
+    setScore(s => ({correct:s.correct+(ok?1:0), total:s.total+1}));
+    // play the chord
+    const ri = CHROMATIC.indexOf(card.root);
+    if(ri!==-1) playChordArp(CHORD_TYPES[card.type].formula.map(i=>ri+i+4*12));
+  }
+  function next() {
+    const newRound = round + 1;
+    setRound(newRound);
+    if (config && newRound >= config.total) { setDone(true); return; }
+    genCard();
+  }
+
+  // Config screen
+  if (!config) return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem',letterSpacing:'-.01em'}}>Speed Flashcards</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>MÉMORISATION RÉFLEXE DES ACCORDS</p>
+      </div>
+      <div style={{padding:'1rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.15)',borderRadius:4,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>Un accord s'affiche. Tu dois identifier la note racine, puis le type d'accord. Plus vite tu répondras, plus tu développes la mémorisation réflexe.</p>
+      </div>
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.65rem'}}>TEMPS PAR CARTE</div>
+        <div style={{display:'flex',gap:8}}>
+          {[[3,'3s 🔥'],[5,'5s'],[8,'8s']].map(([s,label])=>{
+            const sel = (config?.secs||5)===s;
+            return <button key={s} onClick={()=>setConfig(c=>({...(c||{total:10}),secs:s}))} style={{flex:1,padding:'.7rem',background:sel?'rgba(247,220,111,0.15)':'rgba(240,235,224,0.03)',border:`0.5px solid ${sel?'#F7DC6F':'rgba(240,235,224,0.1)'}`,color:sel?'#F7DC6F':'rgba(240,235,224,0.5)',borderRadius:2,cursor:'pointer',fontFamily:'monospace',fontSize:13,fontWeight:'bold',transition:'all 0.2s'}}>{label}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{marginBottom:'2rem'}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.65rem'}}>NOMBRE DE CARTES</div>
+        <div style={{display:'flex',gap:8}}>
+          {[10,20,30].map(n=>{
+            const sel=(config?.total||10)===n;
+            return <button key={n} onClick={()=>setConfig(c=>({...(c||{secs:5}),total:n}))} style={{flex:1,padding:'.7rem',background:sel?'rgba(247,220,111,0.15)':'rgba(240,235,224,0.03)',border:`0.5px solid ${sel?'#F7DC6F':'rgba(240,235,224,0.1)'}`,color:sel?'#F7DC6F':'rgba(240,235,224,0.5)',borderRadius:2,cursor:'pointer',fontFamily:'monospace',fontSize:14,fontWeight:'bold',transition:'all 0.2s'}}>{n}</button>;
+          })}
+        </div>
+      </div>
+      <button onClick={()=>{const cfg={secs:config?.secs||5,total:config?.total||10};setConfig(cfg);setRound(0);setScore({correct:0,total:0});setDone(false);setTimeout(()=>{},50);}}
+        style={{width:'100%',padding:'1rem',background:'rgba(247,220,111,0.15)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold'}}>
+        COMMENCER →
+      </button>
+    </div>
+  );
+
+  // Results
+  if (done) {
+    const pct=Math.round((score.correct/score.total)*100),mc=pct>=90?'#82E0AA':pct>=70?'#85C1E9':pct>=50?'#F7DC6F':'#F1948A';
+    return (
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.2)',borderRadius:4}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS — SPEED FLASHCARDS</div>
+          <div style={{fontSize:72,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:32,opacity:.5}}>/{score.total}</span></div>
+          <div style={{fontSize:22,color:mc,marginBottom:'.5rem'}}>{pct}%</div>
+          <div style={{fontSize:14,opacity:.6,fontFamily:'Georgia,serif'}}>{pct>=90?'Réflexes excellents !':pct>=70?'Très bonne mémorisation !':pct>=50?'Continue à pratiquer !':'Revois tes accords de base !'}</div>
+        </div>
+        <button onClick={()=>{setConfig(null);setDone(false);setCard(null);}} style={{padding:'.9rem',background:'rgba(247,220,111,0.15)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold'}}>↩ RECONFIGURER</button>
+        <button onClick={()=>{setRound(0);setScore({correct:0,total:0});setDone(false);genCard();}} style={{padding:'.9rem',background:'transparent',border:'0.5px solid rgba(240,235,224,0.2)',color:'rgba(240,235,224,0.5)',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em'}}>🔄 REJOUER</button>
+      </div>
+    );
+  }
+
+  // Initialize first card
+  if (!card) { genCard(); return null; }
+
+  const tPct = (timeLeft/(config.secs))*100;
+  const timerColor = tPct>60?'#82E0AA':tPct>30?'#F7DC6F':'#F1948A';
+  const rootCorrect = answered ? userRoot===card.root : null;
+  const typeCorrect = answered ? userType===card.type : null;
+  const fullCorrect = answered && rootCorrect && typeCorrect;
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Header */}
+      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{round+1}/{config.total}</span>
+        <div style={{flex:1,margin:'0 1rem'}}>
+          <div style={{height:4,background:'rgba(240,235,224,0.08)',borderRadius:2,overflow:'hidden'}}>
+            <div style={{height:'100%',width:`${tPct}%`,background:timerColor,borderRadius:2,transition:'width 1s linear'}}/>
+          </div>
+        </div>
+        <span style={{fontSize:13,fontWeight:'bold',fontFamily:'monospace',color:timerColor,minWidth:20,textAlign:'right'}}>{timeLeft}</span>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Card */}
+        <div style={{textAlign:'center',padding:'2rem',background:'rgba(240,235,224,0.02)',border:`0.5px solid ${answered?(fullCorrect?'rgba(130,224,170,0.3)':'rgba(241,148,138,0.3)'):'rgba(240,235,224,0.08)'}`,borderRadius:6,transition:'border-color 0.3s'}}>
+          <div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'1rem'}}>
+            {phase==='root'&&!answered?'QUELLE EST LA NOTE RACINE ?':phase==='type'&&!answered?'QUEL TYPE D\'ACCORD ?':'RÉPONSE'}
+          </div>
+          <div style={{fontSize:52,fontWeight:'bold',color:'#f0ebe0',fontFamily:'Georgia,serif',lineHeight:1,marginBottom:8}}>
+            {card.name}
+          </div>
+          <div style={{fontSize:13,opacity:.4,fontFamily:'monospace'}}>{card.label}</div>
+          {answered && (
+            <div style={{marginTop:'1rem',animation:'fadeIn 0.3s ease'}}>
+              <div style={{fontSize:18,fontWeight:'bold',color:fullCorrect?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:8}}>
+                {fullCorrect?'✓ Correct !':'✗ Raté'}
+              </div>
+              <div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap',fontSize:11,fontFamily:'monospace'}}>
+                <span style={{color:rootCorrect?'#82E0AA':'#F1948A'}}>Racine : {card.root} {rootCorrect?'✓':'✗'}</span>
+                <span style={{opacity:.3}}>|</span>
+                <span style={{color:typeCorrect?'#82E0AA':'#F1948A'}}>Type : {card.label} {typeCorrect?'✓':'✗'}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Phase 1: Root selection */}
+        {!answered && phase==='root' && (
+          <div>
+            <div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>NOTE RACINE</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
+              {ROOT_NOTES.map(root => {
+                const c = NOTE_COLORS[root]||'#C39BD3';
+                return (
+                  <button key={root} onClick={()=>handleRootAnswer(root)}
+                    style={{background:`${c}12`,border:`0.5px solid ${c}50`,color:c,padding:'.65rem .25rem',borderRadius:3,cursor:'pointer',fontSize:14,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
+                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}25`;e.currentTarget.style.transform='scale(1.04)';}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}12`;e.currentTarget.style.transform='scale(1)';}}>
+                    {root}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Phase 2: Type selection */}
+        {!answered && phase==='type' && (
+          <div>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:'.65rem'}}>
+              <div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace'}}>TYPE D'ACCORD</div>
+              <span style={{fontSize:10,color:NOTE_COLORS[userRoot||'C']||'#C39BD3',fontFamily:'monospace',fontWeight:'bold'}}>(racine : {userRoot})</span>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:6}}>
+              {Object.entries(CHORD_TYPES).map(([type,{label}]) => {
+                const c = CHORD_COLORS[type]||'#C39BD3';
+                return (
+                  <button key={type} onClick={()=>handleTypeAnswer(type)}
+                    style={{background:`${c}10`,border:`0.5px solid ${c}40`,color:c,padding:'.7rem .5rem',borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',transition:'all 0.15s'}}
+                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}22`;e.currentTarget.style.transform='scale(1.02)';}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}10`;e.currentTarget.style.transform='scale(1)';}}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {answered && (
+          <button onClick={next} style={{width:'100%',padding:'.9rem',background:fullCorrect?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.08)',border:`1px solid ${fullCorrect?'#82E0AA':'#F1948A'}`,color:fullCorrect?'#82E0AA':'#F1948A',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
+            {round>=config.total-1?'VOIR LES RÉSULTATS →':'CARTE SUIVANTE →'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -985,8 +1267,7 @@ function BibliothequePage() {
   const TABS = [
     {id:'accords',    label:'Accords',    color:'#C39BD3'},
     {id:'partitions', label:'Partitions', color:'#85C1E9'},
-    {id:'grilles',      label:'Grilles',    color:'#82E0AA'},
-    {id:'impro',      label:'Impro',      color:'#F7DC6F'},
+    {id:'grilles',    label:'Grilles',    color:'#82E0AA'},
   ];
   return (
     <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
@@ -1001,7 +1282,6 @@ function BibliothequePage() {
         {tab==='accords'    && <AccordsLibrary/>}
         {tab==='partitions' && <PartitionsPage/>}
         {tab==='grilles'    && <TabsPage/>}
-        {tab==='impro'      && <ImproPage/>}
       </div>
     </div>
   );
@@ -1264,9 +1544,10 @@ function ExercicesPage() {
   const [sub, setSub] = useState(null);
 
   const MODS = [
-    {id:'solfege', icon:'🎼', title:'Solfège',              subtitle:'NOTES · GAMMES · LECTURE', color:'#F7DC6F', ok:true},
-    {id:'lecture', icon:'📖', title:'Lecture de partition', subtitle:'IDENTIFIER LES NOTES',     color:'#85C1E9', ok:true},
-    {id:'rythme',  icon:'🥁', title:'Rythme',               subtitle:'DICTÉE RYTHMIQUE',         color:'#82E0AA', ok:false},
+    {id:'solfege',   icon:'🎼', title:'Solfège',              subtitle:'NOTES · GAMMES · LECTURE', color:'#F7DC6F', ok:true},
+    {id:'lecture',   icon:'📖', title:'Lecture de partition', subtitle:'IDENTIFIER LES NOTES',     color:'#85C1E9', ok:true},
+    {id:'flashcards',icon:'⚡', title:'Speed Flashcards',     subtitle:'MÉMORISATION RÉFLEXE',      color:'#F1948A', ok:true},
+    {id:'rythme',    icon:'🥁', title:'Rythme',               subtitle:'DICTÉE RYTHMIQUE',         color:'#82E0AA', ok:false},
     {id:'impro',   icon:'✨', title:'Improvisation',         subtitle:'SCALES & MODES',           color:'#F1948A', ok:false},
   ];
 
@@ -1280,8 +1561,9 @@ function ExercicesPage() {
           <span style={{fontSize:11,fontFamily:'monospace',color:info?.color,letterSpacing:'.08em'}}>{info?.title.toUpperCase()}</span>
         </div>
         <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-          {sub==='solfege' && <SolfegePage/>}
-          {sub==='lecture' && <LectureExercice/>}
+          {sub==='solfege'    && <SolfegePage/>}
+          {sub==='lecture'    && <LectureExercice/>}
+          {sub==='flashcards' && <SpeedFlashcards/>}
         </div>
       </div>
     );
@@ -1316,13 +1598,24 @@ function AccordsLibrary(){
   const [showModal,setShowModal]=useState(false);const[modalStep,setModalStep]=useState('type');
   const [selType,setSelType]=useState(null);const[selRoot,setSelRoot]=useState(null);
   const [inv,setInv]=useState(0);const[showPiano,setShowPiano]=useState(false);
+  const [showImpro,setShowImpro]=useState(false);
   const cName=selRoot&&selType?selRoot+CHORD_TYPES[selType].suffix:null;
   const cNotes=selRoot&&selType?(()=>{const ri=CHROMATIC.indexOf(selRoot);return CHORD_TYPES[selType].formula.map(i=>CHROMATIC[(ri+i)%12]);})():null;
   const inversions=cNotes?cNotes.map((_,i)=>[...cNotes.slice(i),...cNotes.slice(0,i)]):null;
   const aIdx=getInversionAbsIndices(inversions?inversions[inv]:[]);
   const color=selRoot?(NOTE_COLORS[selRoot]||'#C39BD3'):'#C39BD3';
-  // Notify library view when chord selected
   const handleChordSelect=(root)=>{setSelRoot(root);setInv(0);setShowModal(false);notifyLibraryView();};
+
+  if(showImpro) return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.6)',flexShrink:0}}>
+        <button onClick={()=>setShowImpro(false)} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:2}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)'}>← ACCORDS</button>
+        <span style={{opacity:.2}}>|</span>
+        <span style={{fontSize:11,fontFamily:'monospace',color:'#F7DC6F',letterSpacing:'.05em'}}>ENCHAÎNEMENTS</span>
+      </div>
+      <ImproPage/>
+    </div>
+  );
   return(<div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
     <div style={{position:'fixed',top:'30%',left:'50%',transform:'translate(-50%,-50%)',width:600,height:600,borderRadius:'50%',background:`radial-gradient(circle,${color}12 0%,transparent 70%)`,transition:'background 0.8s ease',pointerEvents:'none',zIndex:0}}/>
     <div style={{position:'relative',zIndex:1,textAlign:'center'}}>
@@ -1334,6 +1627,7 @@ function AccordsLibrary(){
           {cName?"Changer d'accord":'Choisir un accord'}
         </button>
         {cName&&(<button onClick={()=>setShowPiano(v=>!v)} style={{background:showPiano?`${color}18`:'transparent',border:`1px solid ${showPiano?color:'rgba(240,235,224,0.2)'}`,color:showPiano?color:'rgba(240,235,224,0.6)',padding:'.75rem 1.1rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}}>🎹 Clavier</button>)}
+        <button onClick={()=>setShowImpro(true)} style={{background:'rgba(247,220,111,0.08)',border:'1px solid rgba(247,220,111,0.35)',color:'#F7DC6F',padding:'.75rem 1.1rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(247,220,111,0.18)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(247,220,111,0.08)'}>🎵 Enchaînements</button>
       </div>
       {showPiano&&cNotes&&(<div style={{marginBottom:'1.5rem',padding:'1.25rem 1rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:4,animation:'fadeIn 0.3s ease forwards',overflowX:'auto'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.75rem'}}>CLAVIER</div><PianoKeyboard activeAbsIndices={aIdx} color={color}/></div>)}
       {inversions&&(<div style={{animation:'fadeIn 0.4s ease 0.15s both'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>RENVERSEMENTS</div><div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>{inversions.map((iv,i)=>(<button key={`inv${i}`} onClick={()=>setInv(i)} style={{background:inv===i?`${color}18`:'transparent',border:`0.5px solid ${inv===i?color:'rgba(240,235,224,0.15)'}`,color:inv===i?color:'rgba(240,235,224,0.45)',padding:'.5rem .85rem',borderRadius:2,cursor:'pointer',fontFamily:'monospace',fontSize:10,transition:'all 0.2s ease',display:'flex',flexDirection:'column',alignItems:'center',gap:3}} onMouseEnter={e=>{if(inv!==i)e.currentTarget.style.borderColor=`${color}60`;}} onMouseLeave={e=>{if(inv!==i)e.currentTarget.style.borderColor='rgba(240,235,224,0.15)';}}>
@@ -1476,6 +1770,191 @@ function ApprentissagePage({sub,setSub}){
   </div>);
 }
 
+function ApprentissagePage({sub,setSub}){
+  const [showCatTip, setShowCatTip] = useState(null); // category id
+  const [seenTips, setSeenTips] = useState(()=>{ try{return JSON.parse(localStorage.getItem('cs_seen_tips')||'[]');}catch{return[];} });
+
+  // Show category tip once per category on first visit
+  useEffect(()=>{
+    if (!sub || sub==='landing') return;
+    const catKey = sub==='accords'?'repertoire':sub==='exercices'?'technique':sub;
+    if (CATEGORY_TIPS[catKey] && !seenTips.includes(catKey)) {
+      setShowCatTip(catKey);
+    }
+  },[sub]);
+
+  const handleCloseCatTip = () => {
+    const catKey = showCatTip;
+    const next = [...seenTips, catKey];
+    setSeenTips(next);
+    try{ localStorage.setItem('cs_seen_tips', JSON.stringify(next)); }catch{}
+    setShowCatTip(null);
+  };
+
+  if(!sub||sub==='landing') return <ApprentissageLanding onNavigate={setSub}/>;
+  const info = APPRENTISSAGE_SECTIONS.find(s=>s.id===sub);
+  const catTipKey = sub==='accords'?'repertoire':sub==='exercices'?'technique':sub;
+  return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+    {showCatTip && <CategoryTipPopup category={showCatTip} color={info?.color||'#C39BD3'} onClose={handleCloseCatTip}/>}
+    {/* Back bar */}
+    <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.7)',flexShrink:0}}>
+      <button onClick={()=>setSub('landing')} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:2,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)'}>
+        ← APPRENTISSAGE
+      </button>
+      {info&&<>
+        <span style={{opacity:.2}}>|</span>
+        <span style={{fontSize:11,fontFamily:'monospace',color:info.color,letterSpacing:'.08em'}}>{info.title.toUpperCase()}</span>
+      </>}
+      {/* Bouton re-afficher les conseils */}
+      {CATEGORY_TIPS[catTipKey] && (
+        <button onClick={()=>setShowCatTip(catTipKey)} style={{marginLeft:'auto',background:'transparent',border:`0.5px solid ${info?.color}40`,color:`${info?.color}80`,padding:'3px 8px',borderRadius:2,cursor:'pointer',fontSize:9,fontFamily:'monospace',letterSpacing:'.06em',transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color=info?.color} onMouseLeave={e=>e.currentTarget.style.color=`${info?.color}80`}>
+          💡 CONSEILS
+        </button>
+      )}
+    </div>
+    <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+      {sub==='accords'&&<BibliothequePage/>}
+      {sub==='oreille'&&<OreilPage/>}
+      {sub==='exercices'&&<ExercicesPage/>}
+      {sub==='theorie'&&<TheoriePage/>}
+    </div>
+  </div>);
+}
+
+// ── Journal de pratique ───────────────────────────────────────────────────────
+function JournalPage() {
+  const [journal, setJournal] = useState(loadJournal);
+  const [goals, setGoals]     = useState(loadGoals);
+  const [editGoals, setEditGoals] = useState(false);
+  const [todayMins, setTodayMins] = useState('');
+  const [todayNote, setTodayNote] = useState('');
+
+  const today = todayStr();
+
+  const addEntry = () => {
+    const mins = parseInt(todayMins);
+    if (!mins || mins < 1) return;
+    const entry = { mins, note: todayNote, ts: Date.now() };
+    const existing = journal[today] || [];
+    const updated = { ...journal, [today]: [...existing, entry] };
+    setJournal(updated); saveJournal(updated);
+    setTodayMins(''); setTodayNote('');
+  };
+
+  // Compute weekly and total stats
+  const now = new Date();
+  const weekDays = Array.from({length:7},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()-i);return d.toISOString().slice(0,10);}).reverse();
+  const weekMins = weekDays.reduce((acc,d)=>acc+(journal[d]||[]).reduce((s,e)=>s+e.mins,0),0);
+  const totalMins = Object.values(journal).reduce((acc,entries)=>acc+entries.reduce((s,e)=>s+e.mins,0),0);
+  const todayTotalMins = (journal[today]||[]).reduce((s,e)=>s+e.mins,0);
+
+  const weekPct  = Math.min(100, Math.round((weekMins/goals.weeklyMins)*100));
+  const totalPct = Math.min(100, Math.round((totalMins/goals.longTermMins)*100));
+
+  const fmt = (m) => m>=60?`${Math.floor(m/60)}h${m%60>0?` ${m%60}min`:''}`:`${m} min`;
+
+  return (
+    <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'1.5rem'}}>
+        <div>
+          <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Journal de pratique</h2>
+          <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>SUIS TA PROGRESSION QUOTIDIENNE</p>
+        </div>
+        <button onClick={()=>setEditGoals(v=>!v)} style={{background:editGoals?'rgba(133,193,233,0.15)':'transparent',border:`0.5px solid ${editGoals?'#85C1E9':'rgba(240,235,224,0.2)'}`,color:editGoals?'#85C1E9':'rgba(240,235,224,0.45)',padding:'.35rem .7rem',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
+          ⚙ OBJECTIFS
+        </button>
+      </div>
+
+      {/* Edit goals */}
+      {editGoals && (
+        <div style={{background:'rgba(133,193,233,0.05)',border:'0.5px solid rgba(133,193,233,0.15)',borderRadius:4,padding:'1rem',marginBottom:'1.25rem',animation:'fadeIn 0.3s ease'}}>
+          <div style={{fontSize:10,color:'#85C1E9',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'1rem'}}>OBJECTIFS DE PRATIQUE</div>
+          {[
+            {label:'Objectif hebdomadaire (minutes)',key:'weeklyMins',hint:'Ex: 150 = 5 sessions de 30 min'},
+            {label:'Objectif long terme (minutes)',  key:'longTermMins',hint:'Ex: 3000 ≈ 50 heures'},
+          ].map(({label,key,hint})=>(
+            <div key={key} style={{marginBottom:'.75rem'}}>
+              <div style={{fontSize:10,opacity:.5,fontFamily:'monospace',marginBottom:'.35rem'}}>{label.toUpperCase()}</div>
+              <input type="number" value={goals[key]} onChange={e=>{const g={...goals,[key]:parseInt(e.target.value)||0};setGoals(g);saveGoals(g);}}
+                style={{width:'100%',background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.2)',borderRadius:2,padding:'.5rem .75rem',color:'#f0ebe0',fontFamily:'monospace',fontSize:13,outline:'none'}}/>
+              <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',marginTop:3}}>{hint}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Objectives progress */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'1.5rem'}}>
+        {[
+          {label:'Cette semaine', cur:weekMins,  max:goals.weeklyMins,  color:'#85C1E9'},
+          {label:'Long terme',    cur:totalMins, max:goals.longTermMins, color:'#C39BD3'},
+        ].map(({label,cur,max,color})=>{
+          const p=Math.min(100,Math.round((cur/max)*100));
+          return (
+            <div key={label} style={{background:'rgba(240,235,224,0.03)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:4,padding:'.85rem'}}>
+              <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',marginBottom:'.5rem'}}>{label.toUpperCase()}</div>
+              <div style={{fontSize:18,fontWeight:'bold',color,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:2}}>{fmt(cur)}</div>
+              <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',marginBottom:'.5rem'}}>/ {fmt(max)} · {p}%</div>
+              <div style={{height:4,background:'rgba(240,235,224,0.07)',borderRadius:2,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${p}%`,background:color,borderRadius:2,transition:'width 0.8s ease'}}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add today's session */}
+      <div style={{marginBottom:'1.5rem',padding:'1rem',background:'rgba(240,235,224,0.025)',border:'0.5px solid rgba(240,235,224,0.1)',borderRadius:4}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.75rem'}}>
+          AJOUTER UNE SESSION — AUJOURD'HUI {todayTotalMins>0?`(${fmt(todayTotalMins)} enregistrées)`:''}</div>
+        <div style={{display:'flex',gap:8,marginBottom:'.6rem'}}>
+          <input type="number" placeholder="Durée (min)" value={todayMins} onChange={e=>setTodayMins(e.target.value)}
+            style={{flex:'0 0 110px',background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.2)',borderRadius:2,padding:'.5rem .75rem',color:'#f0ebe0',fontFamily:'monospace',fontSize:12,outline:'none'}}/>
+          <input type="text" placeholder="Note optionnelle (ex: gammes, accords...)" value={todayNote} onChange={e=>setTodayNote(e.target.value)}
+            style={{flex:1,background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.2)',borderRadius:2,padding:'.5rem .75rem',color:'#f0ebe0',fontFamily:'Georgia,serif',fontSize:12,outline:'none'}}/>
+        </div>
+        <button onClick={addEntry} disabled={!todayMins||parseInt(todayMins)<1}
+          style={{width:'100%',padding:'.65rem',background:todayMins?'rgba(130,224,170,0.15)':'rgba(240,235,224,0.03)',border:`0.5px solid ${todayMins?'#82E0AA':'rgba(240,235,224,0.1)'}`,color:todayMins?'#82E0AA':'rgba(240,235,224,0.25)',borderRadius:2,cursor:todayMins?'pointer':'not-allowed',fontSize:11,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>
+          + ENREGISTRER LA SESSION
+        </button>
+      </div>
+
+      {/* Week calendar */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.75rem'}}>CETTE SEMAINE</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+          {weekDays.map(d=>{
+            const mins=(journal[d]||[]).reduce((s,e)=>s+e.mins,0);
+            const isToday=d===today;
+            const intensity=Math.min(1,mins/60);
+            return (
+              <div key={d} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                <div style={{fontSize:8,opacity:.35,fontFamily:'monospace'}}>{['D','L','M','M','J','V','S'][new Date(d+'T12:00:00').getDay()]}</div>
+                <div style={{width:'100%',aspectRatio:'1',borderRadius:3,background:mins>0?`rgba(130,224,170,${0.15+intensity*0.6})`:'rgba(240,235,224,0.05)',border:isToday?'1px solid rgba(130,224,170,0.5)':'0.5px solid rgba(240,235,224,0.08)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  {mins>0&&<span style={{fontSize:7,fontFamily:'monospace',color:'#82E0AA'}}>{mins}</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Recent entries */}
+      {Object.entries(journal).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,7).map(([date,entries])=>(
+        <div key={date} style={{marginBottom:'.65rem'}}>
+          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',marginBottom:'.3rem'}}>{date}{date===today?' (aujourd\'hui)':''} — {fmt(entries.reduce((s,e)=>s+e.mins,0))}</div>
+          {entries.map((e,i)=>(
+            <div key={i} style={{padding:'.45rem .75rem',background:'rgba(240,235,224,0.025)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:3,marginBottom:3,display:'flex',gap:8,alignItems:'center'}}>
+              <span style={{fontSize:11,fontFamily:'monospace',color:'#82E0AA',flexShrink:0}}>{e.mins} min</span>
+              {e.note&&<span style={{fontSize:11,opacity:.5,fontFamily:'Georgia,serif'}}>{e.note}</span>}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Compétences Page ──────────────────────────────────────────────────────────
 function CompetencesPage({skills,instrument,setInstrument,stats}){
   const cards=[{label:'Temps de jeu',value:formatTime(stats.totalSeconds),icon:'⏱'},{label:'Exercices réalisés',value:stats.totalExercises||0,icon:'✓'},{label:'Sessions totales',value:stats.sessionsCount||0,icon:'◈'},{label:'Clés gagnées',value:`🗝️ ${stats.keys||0}`,icon:'🗝️'}];
@@ -1543,8 +2022,8 @@ export default function ChordApp(){
     return()=>clearInterval(t);
   },[page]);
 
-  const NAV=[{id:'competences',label:'Compétences',icon:'◈'},{id:'apprentissage',label:'Apprentissage',icon:'✦'},{id:'partage',label:'Partage',icon:'↗'}];
-  const NC={competences:'#C39BD3',apprentissage:'#85C1E9',partage:'#82E0AA'};
+  const NAV=[{id:'competences',label:'Compétences',icon:'◈'},{id:'apprentissage',label:'Apprentissage',icon:'✦'},{id:'journal',label:'Journal',icon:'📅'},{id:'partage',label:'Partage',icon:'↗'}];
+  const NC={competences:'#C39BD3',apprentissage:'#85C1E9',journal:'#82E0AA',partage:'#F7DC6F'};
   const keys=stats.keys||0;
 
   return(<div style={{minHeight:'100vh',background:'#0f0e0c',fontFamily:"'Georgia',serif",color:'#f0ebe0',display:'flex',flexDirection:'column',position:'relative',overflow:'hidden'}}>
@@ -1567,6 +2046,7 @@ export default function ChordApp(){
       {page==='competences'&&<CompetencesPage skills={skills} instrument={instrument} setInstrument={setInstrument} stats={stats}/>}
       {page==='apprentissage'&&<ApprentissagePage sub={apprentissageSub} setSub={setApprentiassageSub}/>}
       {page==='partage'&&<PlaceholderPage title="Partage" icon="↗" description="PARTAGE TA PROGRESSION BIENTÔT"/>}
+        {page==='journal'&&<JournalPage/>}
     </div>
 
     <nav style={{position:'fixed',bottom:0,left:0,right:0,display:'flex',borderTop:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.92)',backdropFilter:'blur(12px)',zIndex:10}}>
