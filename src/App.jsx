@@ -12,8 +12,8 @@ const CHORD_TYPES = {
 };
 const ROOT_NOTES = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
 const NOTE_COLORS = {
-  C:"#E8A87C","C#":"#E8A87C",D:"#85C1E9",Eb:"#85C1E9",E:"#82E0AA",
-  F:"#F1948A","F#":"#F1948A",G:"#C39BD3",Ab:"#C39BD3",A:"#F7DC6F",Bb:"#F7DC6F",B:"#AED6F1",
+  C:"#f97316","C#":"#fb923c",D:"#38bdf8",Eb:"#7dd3fc",E:"#4ade80",
+  F:"#f43f5e","F#":"#fb7185",G:"#a855f7",Ab:"#c084fc",A:"#facc15",Bb:"#fde047",B:"#60a5fa",
 };
 const INVERSION_NAMES = ["Fondamentale","1er renversement","2ème renversement","3ème renversement"];
 const TIPS = [
@@ -74,49 +74,70 @@ function loadGoals() {
 }
 function saveGoals(g) { try { localStorage.setItem(GOAL_KEY, JSON.stringify(g)); } catch {} }
 
+// ── Section card gradients ────────────────────────────────────────────────────
+const SECTION_GRADIENTS = {
+  accords:   'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
+  oreille:   'linear-gradient(135deg, #06B6D4 0%, #0284C7 100%)',
+  exercices: 'linear-gradient(135deg, #10B981 0%, #047857 100%)',
+  theorie:   'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
+  harmonie:  'linear-gradient(135deg, #F43F5E 0%, #BE185D 100%)',
+};
+
 // ── Thèmes visuels ────────────────────────────────────────────────────────────
 const THEMES = {
-  classique: {
-    id: 'classique', label: 'Classique', icon: '🌙',
-    bg: '#0f0e0c',
-    headerBg: 'rgba(15,14,12,0.9)',
-    navBg: 'rgba(15,14,12,0.92)',
-    surface: 'rgba(240,235,224,0.025)',
-    surfaceHover: 'rgba(240,235,224,0.05)',
-    border: 'rgba(240,235,224,0.1)',
-    borderMuted: 'rgba(240,235,224,0.08)',
-    text: '#f0ebe0',
-    textMuted: 'rgba(240,235,224,0.4)',
-    textFaint: 'rgba(240,235,224,0.2)',
-    css: `body{background:#0f0e0c;color:#f0ebe0;}`,
+  cosmos: {
+    id:'cosmos', label:'Cosmos', icon:'🌌',
+    bg:'#0D0B1E',
+    bgGrad:'radial-gradient(ellipse at 20% 20%, rgba(139,92,246,0.18) 0%, transparent 50%), radial-gradient(ellipse at 80% 80%, rgba(59,130,246,0.15) 0%, transparent 50%), radial-gradient(ellipse at 50% 50%, rgba(236,72,153,0.08) 0%, transparent 70%), #0D0B1E',
+    headerBg:'rgba(13,11,30,0.88)',
+    navBg:'rgba(13,11,30,0.96)',
+    surface:'rgba(139,92,246,0.08)',
+    surfaceHover:'rgba(139,92,246,0.14)',
+    border:'rgba(139,92,246,0.25)',
+    borderMuted:'rgba(139,92,246,0.12)',
+    text:'#F5F3FF',
+    textMuted:'rgba(245,243,255,0.5)',
+    textFaint:'rgba(245,243,255,0.25)',
+    accent:'#A78BFA',
+    logoGrad:'linear-gradient(90deg, #A78BFA, #60A5FA, #F472B6)',
+    navActive:'rgba(139,92,246,0.2)',
+    css:`input,textarea{background:rgba(139,92,246,0.1)!important;border-color:rgba(139,92,246,0.25)!important;color:#F5F3FF!important;}input::placeholder,textarea::placeholder{color:rgba(245,243,255,0.35)!important;}`,
+  },
+  neon: {
+    id:'neon', label:'Neon', icon:'⚡',
+    bg:'#080C10',
+    bgGrad:'radial-gradient(ellipse at 15% 30%, rgba(0,255,128,0.12) 0%, transparent 45%), radial-gradient(ellipse at 85% 70%, rgba(6,182,212,0.12) 0%, transparent 45%), radial-gradient(ellipse at 50% 90%, rgba(132,204,22,0.08) 0%, transparent 50%), #080C10',
+    headerBg:'rgba(8,12,16,0.9)',
+    navBg:'rgba(8,12,16,0.97)',
+    surface:'rgba(0,255,128,0.07)',
+    surfaceHover:'rgba(0,255,128,0.13)',
+    border:'rgba(0,255,128,0.22)',
+    borderMuted:'rgba(0,255,128,0.1)',
+    text:'#ECFDF5',
+    textMuted:'rgba(236,253,245,0.5)',
+    textFaint:'rgba(236,253,245,0.25)',
+    accent:'#4ADE80',
+    logoGrad:'linear-gradient(90deg, #4ADE80, #06B6D4, #A3E635)',
+    navActive:'rgba(74,222,128,0.18)',
+    css:`input,textarea{background:rgba(0,255,128,0.07)!important;border-color:rgba(0,255,128,0.22)!important;color:#ECFDF5!important;}`,
   },
   jazz: {
-    id: 'jazz', label: 'Jazz Club', icon: '🎷',
-    bg: 'linear-gradient(160deg, #1c0e04 0%, #0a0d1a 60%, #1a0c10 100%)',
-    headerBg: 'rgba(28,14,4,0.95)',
-    navBg: 'rgba(28,14,4,0.97)',
-    surface: 'rgba(255,180,80,0.05)',
-    surfaceHover: 'rgba(255,180,80,0.1)',
-    border: 'rgba(255,180,80,0.15)',
-    borderMuted: 'rgba(255,180,80,0.08)',
-    text: '#faecd8',
-    textMuted: 'rgba(250,236,216,0.45)',
-    textFaint: 'rgba(250,236,216,0.22)',
-    css: `body{background:#1c0e04;color:#faecd8;}`,
-  },
-  nature: {
-    id: 'nature', label: 'Nature', icon: '🌿',
-    bg: 'linear-gradient(160deg, #051a0f 0%, #0a1a05 50%, #0f1a0a 100%)',
-    headerBg: 'rgba(5,26,15,0.95)',
-    navBg: 'rgba(5,26,15,0.97)',
-    surface: 'rgba(100,220,130,0.05)',
-    surfaceHover: 'rgba(100,220,130,0.1)',
-    border: 'rgba(100,220,130,0.15)',
-    borderMuted: 'rgba(100,220,130,0.08)',
-    text: '#e8f5ec',
-    textMuted: 'rgba(232,245,236,0.45)',
-    textFaint: 'rgba(232,245,236,0.22)',
-    css: `body{background:#051a0f;color:#e8f5ec;}`,
+    id:'jazz', label:'Jazz', icon:'🎷',
+    bg:'#110800',
+    bgGrad:'radial-gradient(ellipse at 25% 25%, rgba(251,146,60,0.18) 0%, transparent 50%), radial-gradient(ellipse at 75% 75%, rgba(239,68,68,0.14) 0%, transparent 50%), radial-gradient(ellipse at 60% 10%, rgba(245,158,11,0.1) 0%, transparent 40%), #110800',
+    headerBg:'rgba(17,8,0,0.9)',
+    navBg:'rgba(17,8,0,0.97)',
+    surface:'rgba(251,146,60,0.08)',
+    surfaceHover:'rgba(251,146,60,0.14)',
+    border:'rgba(251,146,60,0.25)',
+    borderMuted:'rgba(251,146,60,0.1)',
+    text:'#FFF7ED',
+    textMuted:'rgba(255,247,237,0.5)',
+    textFaint:'rgba(255,247,237,0.25)',
+    accent:'#FB923C',
+    logoGrad:'linear-gradient(90deg, #FB923C, #F59E0B, #EF4444)',
+    navActive:'rgba(251,146,60,0.2)',
+    css:`input,textarea{background:rgba(251,146,60,0.08)!important;border-color:rgba(251,146,60,0.25)!important;color:#FFF7ED!important;}`,
   },
 };
 const THEME_IDS = Object.keys(THEMES);
@@ -288,16 +309,59 @@ function Hearts({total,remaining}){
   return(<div style={{display:'flex',gap:3}}>{Array.from({length:total}).map((_,i)=>(<div key={i} style={{width:13,height:13,borderRadius:'50%',background:i<remaining?'#F1948A':'rgba(240,235,224,0.1)',border:i<remaining?'none':'0.5px solid rgba(240,235,224,0.15)',transition:'all 0.3s'}}/>))}</div>);
 }
 
-function SectionCard({icon,title,subtitle,color,onClick,badge,lock}){
+function SectionCard({icon,title,subtitle,color,onClick,badge,lock,id}){
   const [hov,setHov]=useState(false);
-  return(<button onClick={onClick} onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)} style={{background:hov&&!lock?`${color}10`:'rgba(240,235,224,0.025)',border:`0.5px solid ${hov&&!lock?color:'rgba(240,235,224,0.1)'}`,borderRadius:4,padding:'1.1rem',cursor:lock?'default':'pointer',textAlign:'left',transition:'all 0.25s ease',display:'flex',flexDirection:'column',gap:7,transform:hov&&!lock?'translateY(-2px)':'translateY(0)',opacity:lock?.5:1}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-      <span style={{fontSize:26}}>{icon}</span>
-      {badge&&<span style={{fontSize:9,fontFamily:'monospace',color:'#82E0AA',background:'rgba(130,224,170,0.1)',padding:'2px 6px',borderRadius:2}}>NOUVEAU</span>}
-      {lock&&<span style={{fontSize:9,fontFamily:'monospace',color:'rgba(240,235,224,0.3)',border:'0.5px solid rgba(240,235,224,0.12)',padding:'2px 5px',borderRadius:2}}>BIENTÔT</span>}
-    </div>
-    <div><div style={{fontSize:15,fontWeight:'bold',color:hov&&!lock?color:'#f0ebe0',marginBottom:3,fontFamily:'Georgia,serif'}}>{title}</div><div style={{fontSize:10,opacity:.38,fontFamily:'monospace',letterSpacing:'.04em'}}>{subtitle}</div></div>
-  </button>);
+  const [shine,setShine]=useState(false);
+  const grad = SECTION_GRADIENTS[id] || `linear-gradient(135deg, ${color} 0%, ${color}99 100%)`;
+
+  const handleEnter=()=>{ setHov(true); setTimeout(()=>setShine(true),50); };
+  const handleLeave=()=>{ setHov(false); setShine(false); };
+
+  return(
+    <button onClick={onClick} onMouseEnter={handleEnter} onMouseLeave={handleLeave}
+      style={{
+        background: lock ? 'rgba(255,255,255,0.04)' : grad,
+        border: lock ? '1.5px solid rgba(255,255,255,0.08)' : '1.5px solid transparent',
+        borderRadius: 22,
+        padding: '1.4rem 1.2rem 1.25rem',
+        cursor: lock ? 'default' : 'pointer',
+        textAlign: 'left',
+        transition: 'all 0.3s cubic-bezier(0.34,1.56,0.64,1)',
+        display: 'flex', flexDirection: 'column', gap: 10,
+        transform: hov&&!lock ? 'translateY(-5px) scale(1.03)' : 'translateY(0) scale(1)',
+        boxShadow: hov&&!lock
+          ? `0 20px 48px ${color}50, 0 6px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.2)`
+          : `0 4px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)`,
+        opacity: lock ? 0.4 : 1,
+        position: 'relative', overflow: 'hidden',
+        minHeight: 130,
+      }}>
+      {/* Shine sweep */}
+      <div style={{
+        position:'absolute', top:0, left: shine ? '150%' : '-80%',
+        width:'55%', height:'100%',
+        background:'linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent)',
+        transform:'skewX(-18deg)',
+        transition: shine ? 'left 0.55s ease' : 'none',
+        pointerEvents:'none',
+      }}/>
+      {/* Top row */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',zIndex:1}}>
+        <span style={{
+          fontSize: 36,
+          filter: lock ? 'grayscale(1) opacity(0.5)' : 'drop-shadow(0 3px 10px rgba(0,0,0,0.35))',
+          lineHeight: 1,
+        }}>{icon}</span>
+        {badge&&<span style={{fontSize:9,fontFamily:'monospace',color:'#fff',background:'rgba(74,222,128,0.85)',padding:'3px 9px',borderRadius:20,fontWeight:'bold',letterSpacing:'.06em',boxShadow:'0 2px 10px rgba(74,222,128,0.5)'}}>NOUVEAU</span>}
+        {lock&&<span style={{fontSize:8,fontFamily:'monospace',color:'rgba(255,255,255,0.45)',border:'1px solid rgba(255,255,255,0.15)',padding:'2px 8px',borderRadius:20,letterSpacing:'.05em'}}>BIENTÔT</span>}
+      </div>
+      {/* Text */}
+      <div style={{zIndex:1}}>
+        <div style={{fontSize:17,fontWeight:'bold',color:'#fff',marginBottom:5,fontFamily:'Georgia,serif',textShadow:'0 1px 6px rgba(0,0,0,0.4)',letterSpacing:'-.01em'}}>{title}</div>
+        <div style={{fontSize:10,color:'rgba(255,255,255,0.72)',fontFamily:'monospace',letterSpacing:'.04em',lineHeight:1.4}}>{subtitle}</div>
+      </div>
+    </button>
+  );
 }
 
 function TipPopup({tip,onClose,onNext}){
@@ -369,18 +433,22 @@ function SpeedFlashcards() {
     setTimeLeft(config?.secs||5);
   };
 
-  // Timer countdown
-  useEffect(() => {
-    if (!card || answered || done) return;
-    if (timeLeft <= 0) { handleTimeout(); return; }
-    const t = setTimeout(() => setTimeLeft(s => s-1), 1000);
-    return () => clearTimeout(t);
-  }, [timeLeft, card, answered, done]);
-
   function handleTimeout() {
     setAnswered(true);
     setScore(s => ({correct:s.correct, total:s.total+1}));
   }
+
+  // Timer countdown
+  useEffect(() => {
+    if (!card || answered || done) return;
+    if (timeLeft <= 0) {
+      const id = setTimeout(handleTimeout, 0);
+      return () => clearTimeout(id);
+    }
+    const t = setTimeout(() => setTimeLeft(s => s-1), 1000);
+    return () => clearTimeout(t);
+  }, [timeLeft, card, answered, done]);
+
   function handleRootAnswer(root) {
     setUserRoot(root);
     setPhase('type');
@@ -1187,7 +1255,13 @@ function BackTrack({ progression, color }) {
   // Cleanup on unmount
   useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
   // Restart when BPM changes while playing
-  useEffect(() => { if (playing) { stopTrack(); } }, [bpm]);
+  // Avoid calling setState synchronously inside effect by deferring stopTrack
+  useEffect(() => {
+    if (playing) {
+      const t = setTimeout(() => { stopTrack(); }, 0);
+      return () => clearTimeout(t);
+    }
+  }, [bpm]);
 
   const chords = progression.chords;
 
@@ -1720,96 +1794,6 @@ function getChordSemis(root, type, octave = 4) {
   if (ri === -1 || !CHORD_TYPES[type]) return [];
   return CHORD_TYPES[type].formula.map(i => ri + i + octave * 12);
 }
-
-function VoiceLeadingPanel({ progression, color }) {
-  const [expanded, setExpanded] = useState(false);
-  const [activeStep, setActiveStep] = useState(null);
-
-  const chords = progression.chords;
-  if (chords.length < 2) return null;
-
-  // Compute voice leading for each consecutive pair
-  const transitions = chords.map((chord, i) => {
-    if (i === 0) return null;
-    const prev = chords[i - 1];
-    const notesA = getChordSemis(prev.r, prev.t);
-    const notesB = getChordSemis(chord.r, chord.t);
-    const vl = calcVoiceLeading(notesA, notesB);
-    return {
-      from: prev, to: chord,
-      fromNotes: notesA,
-      inversionNotes: vl.inversion,
-      inversionIdx: vl.idx,
-      movement: vl.movement,
-    };
-  }).filter(Boolean);
-
-  const activeTransition = activeStep !== null ? transitions[activeStep] : null;
-  // Build piano colors for the active transition
-  const pianoColors = {};
-  if (activeTransition) {
-    activeTransition.fromNotes.forEach(n => { const k = n % 24; pianoColors[k] = '#85C1E9'; }); // blue = departing
-    activeTransition.inversionNotes.forEach(n => { const k = n % 24; pianoColors[k] = color; }); // color = arriving
-  }
-
-  return (
-    <div style={{ padding: '1rem', background: 'rgba(240,235,224,0.02)', border: `0.5px solid ${color}30`, borderRadius: 4 }}>
-      {/* Header toggle */}
-      <button onClick={() => setExpanded(v => !v)}
-        style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 0 }}>
-        <div style={{ fontSize: 10, color, fontFamily: 'monospace', letterSpacing: '.1em' }}>🎼 VOICE LEADING — RENVERSEMENTS CONSEILLÉS</div>
-        <span style={{ fontSize: 12, color, opacity: .7 }}>{expanded ? '▲' : '▼'}</span>
-      </button>
-
-      {expanded && (
-        <div style={{ marginTop: '1rem', animation: 'fadeIn 0.3s ease' }}>
-          <p style={{ fontSize: 11, opacity: .5, fontFamily: 'Georgia,serif', lineHeight: 1.6, margin: '0 0 1rem' }}>
-            Pour chaque enchaînement, voici le renversement qui minimise le déplacement des voix. Clique sur une transition pour voir les touches sur le clavier.
-          </p>
-
-          {/* Transition list */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: '1rem' }}>
-            {transitions.map((t, i) => {
-              const isActive = activeStep === i;
-              const invName = INVERSION_NAMES[t.inversionIdx] || 'Fondamentale';
-              const nc = NOTE_COLORS[t.to.r] || color;
-              return (
-                <button key={i} onClick={() => setActiveStep(isActive ? null : i)}
-                  style={{ background: isActive ? `${nc}15` : 'rgba(240,235,224,0.03)', border: `0.5px solid ${isActive ? nc : 'rgba(240,235,224,0.1)'}`, borderRadius: 3, padding: '.75rem .9rem', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ fontSize: 13, fontFamily: 'monospace', color: NOTE_COLORS[t.from.r] || '#85C1E9' }}>{t.from.r}{CHORD_TYPES[t.from.t]?.suffix}</span>
-                      <span style={{ fontSize: 11, opacity: .3 }}>→</span>
-                      <span style={{ fontSize: 13, fontFamily: 'monospace', color: nc }}>{t.to.r}{CHORD_TYPES[t.to.t]?.suffix}</span>
-                    </div>
-                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: isActive ? nc : 'rgba(240,235,224,0.4)', padding: '2px 6px', border: `0.5px solid ${isActive ? nc : 'rgba(240,235,224,0.15)'}`, borderRadius: 2 }}>
-                      {t.movement === 0 ? 'IDENTIQUE' : `Δ ${t.movement} ½t`}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 10, opacity: .5, fontFamily: 'monospace' }}>
-                    Jouer en <span style={{ color: nc }}>{invName}</span> — Notes : {t.inversionNotes.map(n => CHROMATIC[n % 12]).join(' – ')}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Piano visualization */}
-          {activeStep !== null && (
-            <div style={{ background: 'rgba(240,235,224,0.02)', border: '0.5px solid rgba(240,235,224,0.07)', borderRadius: 4, padding: '1rem', overflowX: 'auto', animation: 'fadeIn 0.2s ease' }}>
-              <div style={{ fontSize: 9, opacity: .3, fontFamily: 'monospace', marginBottom: '.65rem', textAlign: 'center' }}>
-                <span style={{ color: '#85C1E9' }}>■</span> Note de départ &nbsp;
-                <span style={{ color }}>■</span> Note d'arrivée (renversement conseillé)
-              </div>
-              <PianoKeyboard colors={pianoColors} />
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function ImproPage() {
   const [selected, setSelected] = useState(null);
   const [activeChord, setActiveChord] = useState(null);
@@ -2562,225 +2546,660 @@ function AccordsLibrary(){
 // ══════════════════════════════════════════════════════════════════════════════
 
 // Module 1 : Construction d'accords pas à pas
-function ConstructionAccords() {
-  const STEPS = [
-    { label:'Fondamentale (1)', semi:0,  desc:'La note racine — le centre de gravité de l\'accord.' },
-    { label:'Tierce (3)',       semi:4,  descM:'La tierce majeure (+4) → accord majeur = lumineux, positif.',
-                                         descm:'La tierce mineure (+3) → accord mineur = sombre, introspectif.', hasMajMin:true },
-    { label:'Quinte (5)',       semi:7,  desc:'La quinte juste (+7) → stabilise l\'accord, neutre harmoniquement.' },
-    { label:'Septième (7)',     semi:11, descM:'La 7e majeure (+11) → couleur jazz, rêveuse.',
-                                         descm:'La 7e mineure (+10) → dominante 7, tension forte.', hasMajMin:true },
-  ];
-  const [root, setRoot]           = useState('C');
-  const [step, setStep]           = useState(0);
-  const [majMin, setMajMin]       = useState('maj'); // 'maj' | 'min'
-  const [builtNotes, setBuiltNotes] = useState([0]);
+// ── Données Harmonie ──────────────────────────────────────────────────────────
 
-  const ri = CHROMATIC.indexOf(root);
-  const color = NOTE_COLORS[root] || '#C39BD3';
+const DIATONIC = {
+  majeur: [
+    {deg:'I',   semi:0,  type:'Majeures', fn:'Tonique',        color:'#8B5CF6'},
+    {deg:'ii',  semi:2,  type:'Mineures', fn:'Sus-dominante',  color:'#06B6D4'},
+    {deg:'iii', semi:4,  type:'Mineures', fn:'Médiante',       color:'#10B981'},
+    {deg:'IV',  semi:5,  type:'Majeures', fn:'Sous-dominante', color:'#F59E0B'},
+    {deg:'V',   semi:7,  type:'Majeures', fn:'Dominante',      color:'#EF4444'},
+    {deg:'vi',  semi:9,  type:'Mineures', fn:'Sus-ton.',       color:'#F43F5E'},
+    {deg:'vii°',semi:11, type:'Mineures', fn:'Sensible',       color:'#A78BFA'},
+  ],
+  mineur: [
+    {deg:'i',    semi:0,  type:'Mineures', fn:'Tonique',        color:'#8B5CF6'},
+    {deg:'ii°',  semi:2,  type:'Mineures', fn:'Sus-dom.',       color:'#06B6D4'},
+    {deg:'♭III', semi:3,  type:'Majeures', fn:'Médiante',       color:'#10B981'},
+    {deg:'iv',   semi:5,  type:'Mineures', fn:'Sous-dominante', color:'#F59E0B'},
+    {deg:'V',    semi:7,  type:'Majeures', fn:'Dominante',      color:'#EF4444'},
+    {deg:'♭VI',  semi:8,  type:'Majeures', fn:'Sus-ton.',       color:'#F43F5E'},
+    {deg:'♭VII', semi:10, type:'Majeures', fn:'Sous-ton.',      color:'#A78BFA'},
+  ],
+};
 
-  // Current note being added
-  const currentStep = STEPS[step];
-  const currentSemi = currentStep.hasMajMin
-    ? (majMin==='maj' ? (step===1?4:11) : (step===1?3:10))
-    : currentStep.semi;
+const EMOTION_PROGS = [
+  {label:'🌟 Joyeux / Pop',     desc:'Lumineux, positif, universel', color:'#F59E0B',
+   degs:[0,3,5,4]}, // I IV vi V
+  {label:'😢 Mélancolique',     desc:'Introspectif, nostalgique', color:'#06B6D4',
+   degs:[5,3,0,4]}, // vi IV I V
+  {label:'⚡ Épique / Cinéma',  desc:'Puissant, dramatique', color:'#EF4444',
+   degs:[0,2,3,4]}, // I iii IV V
+  {label:'🌙 Mystérieux',       desc:'Sombre, incertain', color:'#A78BFA',
+   degs:[5,2,4,1]}, // vi iii V ii
+  {label:'💛 Romantique',       desc:'Doux, touchant', color:'#F43F5E',
+   degs:[0,2,3,1]}, // I iii IV ii
+  {label:'🔥 Tension / Jazz',   desc:'Complexe, sophistiqué', color:'#10B981',
+   degs:[1,4,0,5]}, // ii V I vi
+];
 
-  const allNotes = builtNotes.map(s => ({ semi: s, name: CHROMATIC[(ri + s) % 12] }));
+const EXTENSIONS_DATA = [
+  {label:'+maj7',  semi:11, name:'Majeure 7',     color:'#A78BFA',
+   emotion:'Nostalgique / Pur',
+   desc:'Note doucement dissonante qui ajoute une couleur rêveuse, suspendue dans le temps.',
+   use:'Parfait pour les ballades et les intros. Remplace le simple accord majeur dans les passages lyriques — Imaj7.'},
+  {label:'+7',     semi:10, name:'Dominante 7',   color:'#EF4444',
+   emotion:'Tension / Désir',
+   desc:'Crée une friction qui appelle à se résoudre. La couleur blues et jazz par excellence.',
+   use:'Utilise-le sur le V pour créer une tension forte avant de résoudre sur le I. V7→I.'},
+  {label:'+add9',  semi:14, name:'Neuvième ajoutée', color:'#06B6D4',
+   emotion:'Brillant / Ouvert',
+   desc:'Ajoute une couleur fraîche et lumineuse sans complexifier la structure harmonique.',
+   use:'Excellent dans les refrains pop et rock. Iadd9 ou IVadd9 sonnent immédiatement familiers.'},
+  {label:'+9',     semi:14, name:'Neuvième',       color:'#10B981',
+   emotion:'Jazz / Sophistiqué',
+   desc:'Plus riche que l\'add9 car combinée avec la 7e. Signature du jazz moderne.',
+   use:'Typique du ii9, Imaj9. Donne une couleur moderne à n\'importe quelle progression.'},
+  {label:'+#11',   semi:18, name:'11e augmentée',  color:'#F59E0B',
+   emotion:'Mystérieux / Lydien',
+   desc:'Note la plus "flottante". Évoque le mode lydien, l\'espace, l\'irréel de Hans Zimmer.',
+   use:'Sur le IVmaj7#11 pour une sensation de légèreté surréaliste. Très utilisé en musique de film.'},
+  {label:'+b9',    semi:13, name:'9e bémol',        color:'#F43F5E',
+   emotion:'Dramatique / Film d\'horreur',
+   desc:'La tension la plus sombre. Entre deux demi-tons, crée une dissonance maximum.',
+   use:'Uniquement sur le V7 dans des progressions très dramatiques. Signe d\'un point de non-retour.'},
+  {label:'+13',    semi:21, name:'Treizième',       color:'#8B5CF6',
+   emotion:'Élégant / Complet',
+   desc:'L\'accord de jazz le plus luxuriant. Toutes les couleurs harmoniques en une note.',
+   use:'Imaj13 pour une conclusion élégante, ou V13 pour une résolution riche et satisfaisante.'},
+];
 
-  function addNote() {
-    setBuiltNotes(prev => [...prev, currentSemi]);
-    // Play the chord so far + new note
-    const notes = [...builtNotes, currentSemi].map(s => ri + s + 4*12);
-    setTimeout(() => playChordArp(notes), 50);
-    if (step < STEPS.length - 1) setStep(s => s + 1);
-  }
+const CADENCES_DATA = [
+  {id:'parfaite', name:'Parfaite', label:'V7 → I', color:'#8B5CF6',
+   chords:[{r:'G',t:'Dom. 7'},{r:'C',t:'Majeures'}],
+   emotion:'Clôture absolue — satisfaction, conclusion définitive, point final.',
+   effect:'L\'auditeur ressent un soulagement complet. La plus forte résolution de la musique tonale.',
+   usage:'Fin de morceau, de refrain, de section principale. Utilise-la quand tu veux que tout s\'arrête proprement.'},
+  {id:'rompue', name:'Rompue', label:'V → vi', color:'#06B6D4',
+   chords:[{r:'G',t:'Dom. 7'},{r:'A',t:'Mineures'}],
+   emotion:'Surprise douce — l\'oreille attend Do et reçoit La mineur. Rebond inattendu.',
+   effect:'Un sourire intérieur. La "tromperie" musicale la plus agréable.',
+   usage:'Pour éviter une fin prématurée. Parfait pour prolonger un refrain ou créer une surprise avant un solo.'},
+  {id:'demi', name:'Demi-cadence', label:'? → V', color:'#F59E0B',
+   chords:[{r:'C',t:'Majeures'},{r:'G',t:'Majeures'}],
+   emotion:'Suspension — une question sans réponse, une attente suspendue.',
+   effect:'L\'auditeur est tenu en haleine. Il veut la suite.',
+   usage:'Milieu de phrase, fin de couplet avant le refrain. Crée de l\'élan vers ce qui suit.'},
+  {id:'plagale', name:'Plagale', label:'IV → I', color:'#10B981',
+   chords:[{r:'F',t:'Majeures'},{r:'C',t:'Majeures'}],
+   emotion:'Spirituel / Sérénité — l\'Amen des hymnes religieux.',
+   effect:'Paix intérieure, recueillement. Moins tranchante que la parfaite.',
+   usage:'Fin de couplet, de bridge. Gospel, hymnes, ballades douces. Pour une résolution apaisée.'},
+  {id:'phrygienne', name:'Phrygienne', label:'♭II → I', color:'#EF4444',
+   chords:[{r:'Db',t:'Majeures'},{r:'C',t:'Majeures'}],
+   emotion:'Dramatique / Oriental — tension chromatique explosive.',
+   effect:'Choc émotionnel. Le demi-ton entre Réb et Do crée une friction très puissante.',
+   usage:'Fins dramatiques, musique de film, flamenco, metal. Pour un impact maximal.'},
+  {id:'napolitaine', name:'Napolitaine', label:'♭II maj → V → I', color:'#F43F5E',
+   chords:[{r:'Db',t:'Majeures'},{r:'G',t:'Dom. 7'},{r:'C',t:'Majeures'}],
+   emotion:'Romantique / Opéra — sombre et magnifique à la fois.',
+   effect:'Couleur très caractéristique — immédiatement reconnaissable dans l\'opéra et le classique.',
+   usage:'Dans les passages lyriques intenses. Très appréciée dans la musique romantique (Beethoven, Schubert).'},
+];
 
-  function reset() { setBuiltNotes([0]); setStep(0); setMajMin('maj'); }
+const MODULATION_TYPES = [
+  {id:'pivot', name:'Par accord pivot', color:'#8B5CF6', diff:'Douce',
+   desc:'Un accord appartient aux deux tonalités simultanément. L\'auditeur ne remarque pas le changement.',
+   how:'Joue un accord commun aux deux gammes, puis continue dans la nouvelle tonalité.',
+   effect:'Naturelle et fluide. L\'auditeur est "emporté" sans s\'en rendre compte.',
+   example:'Do→Sol : l\'accord de Ré mineur (ii dans Do, vi dans Sol) sert de pivot.'},
+  {id:'directe', name:'Directe / Brusque', color:'#EF4444', diff:'Forte',
+   desc:'Changement abrupt sans préparation. La nouvelle tonalité s\'impose par surprise.',
+   how:'Termine une phrase dans la tonalité d\'origine, commence la suivante dans la nouvelle.',
+   effect:'Choc, surprise, rupture dramatique. Efficace pour signaler un changement émotionnel fort.',
+   example:'Do→Mi♭ : le refrain explose dans une tonalité distante sans transition.'},
+  {id:'chromatique', name:'Chromatique', color:'#F59E0B', diff:'Colorée',
+   desc:'Une note de l\'accord monte ou descend d\'un demi-ton pour atteindre l\'accord de départ de la nouvelle tonalité.',
+   how:'Modifie chromatiquement une note de ton dernier accord pour glisser vers le nouvel accord.',
+   effect:'Sophistiquée, jazzy. Crée une sensation de "glissement" harmonique.',
+   example:'Do→Ré♭ : le Do majeur devient Do7 (avec Si♭), qui "glisse" vers Ré♭ majeur.'},
+  {id:'relative', name:'Vers le relatif', color:'#10B981', diff:'Très douce',
+   desc:'La gamme majeure et sa relative mineure partagent les mêmes notes. Transition quasi invisible.',
+   how:'Simplement, les accords de vi dans le majeur deviennent i dans le mineur relatif.',
+   effect:'Très naturelle, émotionnelle. Passe du lumineux au sombre (ou inversement) sans rupture.',
+   example:'Do majeur → La mineur : même armure, même notes, couleur radicalement différente.'},
+];
 
-  const pianoColors = {};
-  builtNotes.forEach(s => { const k=(ri+s)%12; pianoColors[k]=color; pianoColors[k+12]=color; });
+// ── Composition Assistée ──────────────────────────────────────────────────────
+function CompositionAssistee() {
+  const KEYS = ROOT_NOTES;
+  const [key, setKey]       = useState('C');
+  const [mode, setMode]     = useState('majeur');
+  const [emotion, setEmotion] = useState(null);
+  const [prog, setProg]     = useState([]); // array of deg indices
+  const [playing, setPlaying] = useState(false);
+  const [step, setStep]     = useState('key'); // key | emotion | build
+
+  const scale = DIATONIC[mode];
+  const ri = CHROMATIC.indexOf(key);
+  const color = NOTE_COLORS[key] || '#8B5CF6';
+
+  // Get chord name from degree index
+  const getChordName = (degIdx) => {
+    const d = scale[degIdx];
+    const root = CHROMATIC[(ri + d.semi) % 12];
+    return root + (CHORD_TYPES[d.type]?.suffix || '');
+  };
+
+  // Suggest progression from emotion
+  const applyEmotion = (em) => {
+    setEmotion(em);
+    setProg(em.degs.slice(0, 4));
+    setStep('build');
+  };
+
+  // Play current progression
+  const playProg = async () => {
+    if (playing || prog.length === 0) return;
+    setPlaying(true);
+    for (let i = 0; i < prog.length; i++) {
+      const d = scale[prog[i]];
+      const rootSemi = ri + d.semi;
+      const notes = CHORD_TYPES[d.type].formula.map(f => rootSemi + f + 4*12);
+      playChordArp(notes);
+      await new Promise(r => setTimeout(r, 1300));
+    }
+    setPlaying(false);
+  };
 
   return (
     <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
-      <div style={{marginBottom:'1.25rem'}}>
-        <h3 style={{fontSize:16,fontWeight:'bold',marginBottom:'.35rem'}}>Construction d'accords</h3>
-        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>CONSTRUIS UN ACCORD NOTE PAR NOTE</p>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Composition Assistée</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>CONSTRUIS UNE PROGRESSION PAS À PAS</p>
       </div>
 
-      {/* Root selection */}
+      {/* Steps indicator */}
+      <div style={{display:'flex',gap:6,marginBottom:'1.5rem'}}>
+        {[['key','① Tonalité'],['emotion','② Émotion'],['build','③ Progression']].map(([s,label])=>(
+          <button key={s} onClick={()=>setStep(s)} style={{flex:1,padding:'.45rem .25rem',background:step===s?`${color}20`:'rgba(255,255,255,0.04)',border:`1px solid ${step===s?color:'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:step===s?color:'rgba(255,255,255,0.4)',letterSpacing:'.04em',transition:'all 0.2s',textAlign:'center'}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Step 1: Key + Mode */}
+      {step==='key' && (
+        <div style={{animation:'fadeIn 0.3s ease'}}>
+          <div style={{marginBottom:'1.25rem'}}>
+            <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>MODE</div>
+            <div style={{display:'flex',gap:8}}>
+              {['majeur','mineur'].map(m=>(
+                <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:'.7rem',background:mode===m?`${color}20`:'rgba(255,255,255,0.04)',border:`1px solid ${mode===m?color:'rgba(255,255,255,0.1)'}`,borderRadius:12,cursor:'pointer',color:mode===m?color:'rgba(255,255,255,0.5)',fontFamily:'monospace',fontSize:12,fontWeight:'bold',letterSpacing:'.06em',transition:'all 0.2s',textTransform:'uppercase'}}>
+                  {m==='majeur'?'☀ MAJEUR':'🌙 MINEUR'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{marginBottom:'1.5rem'}}>
+            <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>TONIQUE</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
+              {KEYS.map(k=>{
+                const nc=NOTE_COLORS[k]||'#8B5CF6',sel=key===k;
+                return <button key={k} onClick={()=>setKey(k)} style={{background:sel?`${nc}25`:`${nc}10`,border:`1.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.6rem .25rem',borderRadius:10,cursor:'pointer',fontSize:14,fontWeight:sel?'bold':'normal',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 4px 14px ${nc}40`:'none'}}>{k}</button>;
+              })}
+            </div>
+          </div>
+          {/* Diatonic chords preview */}
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,marginBottom:'1.25rem'}}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>ACCORDS DISPONIBLES EN {key} {mode.toUpperCase()}</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {scale.map((d,i)=>{
+                const root=CHROMATIC[(ri+d.semi)%12];
+                const name=root+(CHORD_TYPES[d.type]?.suffix||'');
+                return(<div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'.5rem .6rem',background:`${d.color}12`,border:`0.5px solid ${d.color}40`,borderRadius:8}}>
+                  <span style={{fontSize:9,color:d.color,fontFamily:'monospace',opacity:.7}}>{d.deg}</span>
+                  <span style={{fontSize:13,fontWeight:'bold',color:d.color,fontFamily:'monospace'}}>{name}</span>
+                  <span style={{fontSize:8,opacity:.4,fontFamily:'monospace'}}>{d.fn}</span>
+                </div>);
+              })}
+            </div>
+          </div>
+          <button onClick={()=>setStep('emotion')} style={{width:'100%',padding:'.9rem',background:`${color}18`,border:`1.5px solid ${color}`,color,borderRadius:12,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',transition:'all 0.2s'}}>
+            CHOISIR L'ÉMOTION →
+          </button>
+        </div>
+      )}
+
+      {/* Step 2: Emotion */}
+      {step==='emotion' && (
+        <div style={{animation:'fadeIn 0.3s ease'}}>
+          <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.9rem'}}>QUELLE ÉMOTION VEUX-TU TRANSMETTRE ?</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {EMOTION_PROGS.map(em=>(
+              <button key={em.label} onClick={()=>applyEmotion(em)} style={{background:emotion?.label===em.label?`${em.color}20`:'rgba(255,255,255,0.04)',border:`1.5px solid ${emotion?.label===em.label?em.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.9rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:'bold',color:em.color,fontFamily:'Georgia,serif',marginBottom:3}}>{em.label}</div>
+                  <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{em.desc}</div>
+                </div>
+                <div style={{display:'flex',gap:5,flexShrink:0,marginLeft:8}}>
+                  {em.degs.map((di,i)=>(
+                    <span key={i} style={{fontSize:10,fontFamily:'monospace',color:scale[di]?.color,padding:'2px 5px',background:`${scale[di]?.color}15`,borderRadius:5}}>
+                      {getChordName(di)}
+                    </span>
+                  ))}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Build + play */}
+      {step==='build' && prog.length>0 && (
+        <div style={{animation:'fadeIn 0.3s ease'}}>
+          {emotion && (
+            <div style={{padding:'.75rem',background:`${emotion.color}12`,border:`1px solid ${emotion.color}30`,borderRadius:10,marginBottom:'1.25rem'}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:emotion.color,fontFamily:'Georgia,serif',marginBottom:3}}>{emotion.label}</div>
+              <div style={{fontSize:11,opacity:.55,fontFamily:'monospace'}}>{emotion.desc}</div>
+            </div>
+          )}
+          {/* Progression display */}
+          <div style={{marginBottom:'1.25rem'}}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>PROGRESSION EN {key} {mode.toUpperCase()}</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              {prog.map((degIdx,i)=>{
+                const d=scale[degIdx];
+                const root=CHROMATIC[(ri+d.semi)%12];
+                const name=root+(CHORD_TYPES[d.type]?.suffix||'');
+                return(<div key={i} style={{padding:'.75rem .9rem',background:`${d.color}18`,border:`1.5px solid ${d.color}60`,borderRadius:12,textAlign:'center',minWidth:60}}>
+                  <div style={{fontSize:9,color:d.color,fontFamily:'monospace',opacity:.7,marginBottom:3}}>{d.deg}</div>
+                  <div style={{fontSize:18,fontWeight:'bold',color:d.color,fontFamily:'monospace',lineHeight:1}}>{name}</div>
+                  <div style={{fontSize:8,opacity:.4,fontFamily:'monospace',marginTop:3}}>{d.fn}</div>
+                </div>);
+              })}
+            </div>
+          </div>
+          {/* Add chords */}
+          <div style={{marginBottom:'1.25rem'}}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>AJOUTER UN ACCORD</div>
+            <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
+              {scale.map((d,i)=>{
+                const root=CHROMATIC[(ri+d.semi)%12];
+                const name=root+(CHORD_TYPES[d.type]?.suffix||'');
+                return(<button key={i} onClick={()=>setProg(p=>[...p,i])} style={{background:`${d.color}10`,border:`0.5px solid ${d.color}40`,color:d.color,padding:'.4rem .7rem',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace',transition:'all 0.15s'}}>+{name}</button>);
+              })}
+            </div>
+          </div>
+          {prog.length>1 && <button onClick={()=>setProg(p=>p.slice(0,-1))} style={{padding:'.4rem .85rem',background:'rgba(241,148,138,0.1)',border:'0.5px solid rgba(241,148,138,0.3)',color:'#F1948A',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',marginBottom:'1.25rem',transition:'all 0.2s'}}>↩ Retirer le dernier</button>}
+          <button onClick={playProg} disabled={playing} style={{width:'100%',padding:'1rem',background:playing?'rgba(130,224,170,0.1)':'rgba(130,224,170,0.15)',border:`1.5px solid ${playing?'rgba(130,224,170,0.5)':'#82E0AA'}`,color:'#82E0AA',borderRadius:12,cursor:playing?'default':'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',transition:'all 0.3s'}}>
+            {playing?'▶ EN COURS…':'▶ ÉCOUTER LA PROGRESSION'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Extensions & Tensions ─────────────────────────────────────────────────────
+function ExtensionsTensions() {
+  const [root, setRoot]         = useState('C');
+  const [baseType, setBaseType] = useState('Majeures');
+  const [active, setActive]     = useState(new Set());
+  const [showUse, setShowUse]   = useState(null);
+
+  const ri = CHROMATIC.indexOf(root);
+  const color = NOTE_COLORS[root] || '#8B5CF6';
+  const baseSemis = ri !== -1 ? CHORD_TYPES[baseType]?.formula.map(s=>s) : [];
+
+  // All active semis = base + extensions
+  const activeSemis = [...baseSemis, ...Array.from(active).map(label=>EXTENSIONS_DATA.find(e=>e.label===label)?.semi).filter(Boolean)];
+  const uniqueSemis = [...new Set(activeSemis)];
+
+  // Piano colors
+  const pianoColors = {};
+  uniqueSemis.forEach(s=>{
+    const k=(ri+s)%12; const k2=k+12;
+    const isBase=baseSemis.includes(s);
+    const ext=EXTENSIONS_DATA.find(e=>e.semi===s);
+    pianoColors[k]=isBase?color:(ext?.color||'#F7DC6F');
+    pianoColors[k2]=isBase?color:(ext?.color||'#F7DC6F');
+  });
+
+  const toggleExt=(label)=>{
+    setActive(prev=>{
+      const n=new Set(prev);
+      if(n.has(label))n.delete(label);else n.add(label);
+      // Play new chord
+      const ext=EXTENSIONS_DATA.find(e=>e.label===label);
+      if(ext&&ri!==-1){
+        const notes=[...baseSemis.map(s=>ri+s+4*12)];
+        if(!n.has(label)){/* removed */}else notes.push(ri+ext.semi+4*12);
+        setTimeout(()=>playChordSimul(notes),50);
+      }
+      return n;
+    });
+  };
+
+  const playBase=()=>{ if(ri===-1)return; const notes=baseSemis.map(s=>ri+s+4*12); playChordArp(notes); };
+  const playFull=()=>{ if(ri===-1)return; const notes=uniqueSemis.map(s=>ri+s+4*12); playChordArp(notes); };
+
+  const baseChordName = root + (CHORD_TYPES[baseType]?.suffix||'');
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
       <div style={{marginBottom:'1.25rem'}}>
-        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.6rem'}}>NOTE RACINE</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:5}}>
-          {ROOT_NOTES.map(r=>{
-            const nc=NOTE_COLORS[r]||'#C39BD3',sel=root===r;
-            return <button key={r} onClick={()=>{setRoot(r);reset();}} style={{background:sel?`${nc}25`:`${nc}10`,border:`0.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.5rem .1rem',borderRadius:2,cursor:'pointer',fontSize:13,fontWeight:sel?'bold':'normal',fontFamily:'monospace',transition:'all 0.15s'}}>{r}</button>;
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Extensions & Tensions</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>EXPLORER L'IMPACT ÉMOTIONNEL DES TENSIONS</p>
+      </div>
+
+      {/* Chord selector */}
+      <div style={{marginBottom:'1.25rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>ACCORD DE BASE</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:4,marginBottom:'0.75rem'}}>
+          {ROOT_NOTES.map(r=>{const nc=NOTE_COLORS[r]||'#8B5CF6',sel=root===r;return(<button key={r} onClick={()=>{setRoot(r);setActive(new Set());}} style={{background:sel?`${nc}25`:`${nc}10`,border:`1.5px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 10px ${nc}40`:'none'}}>{r}</button>);} )}
+        </div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>
+          {Object.entries(CHORD_TYPES).slice(0,3).map(([t,{label}])=>{
+            const tc=CHORD_COLORS[t]||'#8B5CF6',sel=baseType===t;
+            return(<button key={t} onClick={()=>{setBaseType(t);setActive(new Set());}} style={{background:sel?`${tc}20`:`${tc}08`,border:`1px solid ${sel?tc:tc+'30'}`,color:sel?tc:`${tc}99`,padding:'.5rem .25rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',transition:'all 0.15s'}}>{label}</button>);
           })}
         </div>
       </div>
 
-      {/* Notes built so far */}
-      <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:'1.25rem',flexWrap:'wrap'}}>
-        {allNotes.map((n,i)=>(
-          <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
-            <div style={{width:48,height:48,borderRadius:'50%',background:`${color}20`,border:`1.5px solid ${color}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:'bold',color,fontFamily:'monospace'}}>{n.name}</div>
-            <div style={{fontSize:9,opacity:.45,fontFamily:'monospace'}}>{STEPS[i]?.label?.split(' ')[0]||'—'}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Current step explanation */}
-      {step < STEPS.length && (
-        <div style={{padding:'1rem',background:`${color}08`,border:`0.5px solid ${color}30`,borderRadius:4,marginBottom:'1rem',animation:'fadeIn 0.3s ease'}}>
-          <div style={{fontSize:12,fontWeight:'bold',color,fontFamily:'Georgia,serif',marginBottom:'.5rem'}}>{STEPS[step].label}</div>
-          {STEPS[step].hasMajMin ? (
-            <div>
-              <div style={{display:'flex',gap:6,marginBottom:'.65rem'}}>
-                {['maj','min'].map(m=>(
-                  <button key={m} onClick={()=>setMajMin(m)} style={{flex:1,padding:'.45rem',background:majMin===m?`${color}20`:'transparent',border:`0.5px solid ${majMin===m?color:'rgba(240,235,224,0.15)'}`,color:majMin===m?color:'rgba(240,235,224,0.45)',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
-                    {m==='maj'?'MAJEURE ↑':'MINEURE ↓'}
-                  </button>
-                ))}
-              </div>
-              <p style={{fontSize:12,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>
-                {majMin==='maj'?STEPS[step].descM:STEPS[step].descm}
-              </p>
-            </div>
-          ) : (
-            <p style={{fontSize:12,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{STEPS[step].desc}</p>
-          )}
+      {/* Base chord display */}
+      <div style={{textAlign:'center',marginBottom:'1.25rem',padding:'1rem',background:`${color}10`,border:`1px solid ${color}30`,borderRadius:12}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>ACCORD ACTUEL</div>
+        <div style={{fontSize:40,fontWeight:'bold',color,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:8}}>
+          {baseChordName}{active.size>0&&<span style={{fontSize:20,opacity:.6,marginLeft:4}}>{Array.from(active).join('')}</span>}
         </div>
-      )}
-
-      {/* Action buttons */}
-      <div style={{display:'flex',gap:8,marginBottom:'1.25rem'}}>
-        {step < STEPS.length ? (
-          <button onClick={addNote} style={{flex:1,padding:'.85rem',background:`${color}15`,border:`1px solid ${color}`,color,borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',transition:'all 0.2s'}}>
-            + AJOUTER {STEPS[step].label.split(' ')[0].toUpperCase()}
-          </button>
-        ) : (
-          <div style={{flex:1,padding:'.85rem',background:`${color}08`,border:`0.5px solid ${color}40`,borderRadius:3,textAlign:'center',fontSize:12,fontFamily:'monospace',color,letterSpacing:'.1em'}}>
-            ✓ ACCORD COMPLET
+        {active.size>0 && (
+          <div style={{fontSize:11,fontFamily:'monospace',color:EXTENSIONS_DATA.find(e=>active.has(e.label))?.color||color,marginBottom:8,fontStyle:'italic'}}>
+            {EXTENSIONS_DATA.filter(e=>active.has(e.label)).map(e=>e.emotion).join(' · ')}
           </div>
         )}
-        <button onClick={reset} style={{padding:'.85rem 1rem',background:'transparent',border:'0.5px solid rgba(240,235,224,0.2)',color:'rgba(240,235,224,0.45)',borderRadius:3,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>↩ RESET</button>
+        <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+          <button onClick={playBase} style={{background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.7)',padding:'.4rem .9rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em'}}>🔊 BASE</button>
+          {active.size>0&&<button onClick={playFull} style={{background:`${color}18`,border:`1px solid ${color}`,color,padding:'.4rem .9rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold'}}>🎵 AVEC TENSIONS</button>}
+          {active.size>0&&<button onClick={()=>setActive(new Set())} style={{background:'rgba(241,148,138,0.1)',border:'0.5px solid rgba(241,148,138,0.3)',color:'#F1948A',padding:'.4rem .75rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace'}}>✕ Reset</button>}
+        </div>
       </div>
 
       {/* Piano */}
-      <div style={{overflowX:'auto',padding:'.75rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:4}}>
-        <div style={{fontSize:9,opacity:.3,fontFamily:'monospace',marginBottom:'.65rem',textAlign:'center'}}>CLAVIER</div>
+      <div style={{overflowX:'auto',padding:'.75rem',background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.06)',borderRadius:12,marginBottom:'1.25rem'}}>
         <PianoKeyboard colors={pianoColors}/>
       </div>
+
+      {/* Extension buttons */}
+      <div style={{marginBottom:'1rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>AJOUTER UNE TENSION</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {EXTENSIONS_DATA.map(ext=>{
+            const isOn=active.has(ext.label);
+            return(<div key={ext.label} style={{background:isOn?`${ext.color}15`:'rgba(255,255,255,0.03)',border:`1px solid ${isOn?ext.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem',transition:'all 0.2s'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:isOn?'.65rem':0}}>
+                <div style={{display:'flex',gap:10,alignItems:'center'}}>
+                  <button onClick={()=>toggleExt(ext.label)} style={{background:isOn?ext.color:'rgba(255,255,255,0.06)',border:`1.5px solid ${ext.color}`,color:isOn?'#0D0B1E':ext.color,padding:'.3rem .6rem',borderRadius:8,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',minWidth:56,transition:'all 0.2s',boxShadow:isOn?`0 2px 10px ${ext.color}50`:'none'}}>
+                    {ext.label}
+                  </button>
+                  <div>
+                    <div style={{fontSize:12,fontWeight:'bold',color:ext.color,fontFamily:'Georgia,serif'}}>{ext.name}</div>
+                    <div style={{fontSize:10,fontStyle:'italic',color:ext.color,opacity:.8}}>"{ext.emotion}"</div>
+                  </div>
+                </div>
+                <button onClick={()=>setShowUse(showUse===ext.label?null:ext.label)} style={{background:'transparent',border:`0.5px solid ${ext.color}40`,color:ext.color,padding:'2px 7px',borderRadius:6,cursor:'pointer',fontSize:9,fontFamily:'monospace',flexShrink:0}}>
+                  {showUse===ext.label?'▲':'↗ USE'}
+                </button>
+              </div>
+              {isOn&&<p style={{fontSize:11,opacity:.65,lineHeight:1.6,margin:'0 0 .5rem',fontFamily:'Georgia,serif'}}>{ext.desc}</p>}
+              {showUse===ext.label&&(<div style={{padding:'.65rem',background:`${ext.color}10`,borderRadius:8,marginTop:6,animation:'fadeIn 0.2s ease'}}>
+                <div style={{fontSize:9,color:ext.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.35rem'}}>COMMENT L'INTÉGRER</div>
+                <p style={{fontSize:11,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{ext.use}</p>
+              </div>)}
+            </div>);
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
-// Module 2 : Tension & Résolution
-function TensionResolution() {
-  const PAIRS = [
-    { tension:{r:'G',t:'Dom. 7',label:'G7 — Dominante de Do'},
-      resolution:{r:'C',t:'Majeures',label:'C — Tonique'},
-      explain:"Le G7 crée une tension forte grâce à sa titon interne (Si–Fa). Il appelle naturellement à se résoudre sur Do majeur." },
-    { tension:{r:'D',t:'Dom. 7',label:'D7 — Dominante de Sol'},
-      resolution:{r:'G',t:'Majeures',label:'G — Tonique'},
-      explain:"La même relation V7→I, transposée en Sol. La sensible (Fa#) monte vers Sol, la 7e (Do) descend vers Si." },
-    { tension:{r:'B',t:'Dom. 7',label:'B7 — Dominante de Mi'},
-      resolution:{r:'E',t:'Mineures',label:'Em — Tonique mineure'},
-      explain:"Un V7 peut aussi résoudre sur un accord mineur — on appelle ça une résolution sur mode mineur (cadence phrygienne)." },
-    { tension:{r:'F',t:'Dom. 7',label:'F7 — Substitution triton'},
-      resolution:{r:'C',t:'Majeures',label:'C — Tonique'},
-      explain:"Le triton de B7 est F7. Les deux partagent les mêmes notes de tension (La–Mib enharmoniquement). C'est la substitution triton du jazz." },
-  ];
+// ── Cadences ──────────────────────────────────────────────────────────────────
+function CadencesPage() {
+  const [active, setActive] = useState(null);
+  const [playing, setPlaying] = useState(false);
 
-  const [pairIdx, setPairIdx]     = useState(0);
-  const [phase, setPhase]         = useState('tension'); // tension | resolution
-  const [heard, setHeard]         = useState(false);
-
-  const pair = PAIRS[pairIdx];
-  const chordInfo = (r, t) => {
-    const ri = CHROMATIC.indexOf(r);
-    return ri === -1 ? [] : CHORD_TYPES[t]?.formula.map(i => ri + i + 4*12) || [];
+  const playCadence = async (cad) => {
+    if(playing)return;
+    setActive(cad.id); setPlaying(true);
+    for(const chord of cad.chords){
+      const ri=CHROMATIC.indexOf(chord.r);
+      if(ri===-1)continue;
+      const notes=CHORD_TYPES[chord.t].formula.map(f=>ri+f+4*12);
+      playChordArp(notes);
+      await new Promise(r=>setTimeout(r,1400));
+    }
+    setPlaying(false);
   };
 
-  function playTension() {
-    playChordArp(chordInfo(pair.tension.r, pair.tension.t));
-    setPhase('tension'); setHeard(true);
-  }
-  function playResolution() {
-    playChordArp(chordInfo(pair.resolution.r, pair.resolution.t));
-    setPhase('resolution');
-  }
-  function playBoth() {
-    playChordArp(chordInfo(pair.tension.r, pair.tension.t));
-    setTimeout(()=>playChordArp(chordInfo(pair.resolution.r, pair.resolution.t)), 1400);
-    setPhase('resolution'); setHeard(true);
-  }
-
-  return (
+  return(
     <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
       <div style={{marginBottom:'1.25rem'}}>
-        <h3 style={{fontSize:16,fontWeight:'bold',marginBottom:'.35rem'}}>Tension & Résolution</h3>
-        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>COMPRENDRE POURQUOI UN ACCORD APPELLE UN AUTRE</p>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Cadences</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>RÉPERTOIRE DES CADENCES — EFFETS ÉMOTIONNELS</p>
       </div>
-
-      {/* Pair selector */}
-      <div style={{display:'flex',gap:6,marginBottom:'1.25rem',overflowX:'auto'}}>
-        {PAIRS.map((p,i)=>(
-          <button key={i} onClick={()=>{setPairIdx(i);setPhase('tension');setHeard(false);}} style={{padding:'.4rem .75rem',background:pairIdx===i?'rgba(241,148,138,0.15)':'rgba(240,235,224,0.03)',border:`0.5px solid ${pairIdx===i?'#F1948A':'rgba(240,235,224,0.12)'}`,color:pairIdx===i?'#F1948A':'rgba(240,235,224,0.45)',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',transition:'all 0.2s'}}>{i+1}. {p.tension.r}7→{p.resolution.r}</button>
-        ))}
+      <div style={{padding:'.75rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:12,marginBottom:'1.25rem'}}>
+        <p style={{fontSize:12,opacity:.55,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>Une cadence est une formule harmonique qui ponctue la musique — comme une virgule ou un point final. Clique sur une cadence pour l'entendre en Do majeur.</p>
       </div>
-
-      {/* Tension chord */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:8,alignItems:'center',marginBottom:'1.25rem'}}>
-        <button onClick={playTension} style={{padding:'1.25rem',background:phase==='tension'?'rgba(241,148,138,0.15)':'rgba(241,148,138,0.05)',border:`1px solid ${phase==='tension'?'#F1948A':'rgba(241,148,138,0.25)'}`,borderRadius:4,cursor:'pointer',transition:'all 0.3s',textAlign:'center'}}>
-          <div style={{fontSize:9,color:'#F1948A',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:6}}>TENSION</div>
-          <div style={{fontSize:22,fontWeight:'bold',color:'#F1948A',fontFamily:'Georgia,serif',lineHeight:1}}>{pair.tension.r}{CHORD_TYPES[pair.tension.t]?.suffix}</div>
-          <div style={{fontSize:9,opacity:.5,fontFamily:'monospace',marginTop:4}}>🔊 ÉCOUTER</div>
-        </button>
-        <button onClick={playBoth} style={{padding:'.5rem',background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.15)',borderRadius:'50%',cursor:'pointer',width:44,height:44,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0,transition:'all 0.2s'}} title="Jouer les deux">▶▶</button>
-        <button onClick={playResolution} style={{padding:'1.25rem',background:phase==='resolution'?'rgba(130,224,170,0.15)':'rgba(130,224,170,0.05)',border:`1px solid ${phase==='resolution'?'#82E0AA':'rgba(130,224,170,0.25)'}`,borderRadius:4,cursor:'pointer',transition:'all 0.3s',textAlign:'center'}}>
-          <div style={{fontSize:9,color:'#82E0AA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:6}}>RÉSOLUTION</div>
-          <div style={{fontSize:22,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif',lineHeight:1}}>{pair.resolution.r}{CHORD_TYPES[pair.resolution.t]?.suffix}</div>
-          <div style={{fontSize:9,opacity:.5,fontFamily:'monospace',marginTop:4}}>🔊 ÉCOUTER</div>
-        </button>
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+        {CADENCES_DATA.map(cad=>{
+          const isA=active===cad.id;
+          return(
+            <div key={cad.id} style={{background:isA?`${cad.color}12`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?cad.color:'rgba(255,255,255,0.08)'}`,borderRadius:14,padding:'1rem',transition:'all 0.3s'}}>
+              {/* Header */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.75rem'}}>
+                <div>
+                  <div style={{fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif',color:isA?cad.color:'#fff',marginBottom:3}}>{cad.name}</div>
+                  <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                    {cad.chords.map((ch,i)=>(
+                      <span key={i} style={{display:'flex',alignItems:'center',gap:4}}>
+                        {i>0&&<span style={{opacity:.3,fontSize:12}}>→</span>}
+                        <span style={{fontSize:12,fontFamily:'monospace',color:NOTE_COLORS[ch.r]||cad.color,padding:'2px 7px',background:`${NOTE_COLORS[ch.r]||cad.color}15`,borderRadius:6}}>{ch.r}{CHORD_TYPES[ch.t]?.suffix}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={()=>playCadence(cad)} disabled={playing} style={{background:`${cad.color}20`,border:`1px solid ${cad.color}`,color:cad.color,padding:'.45rem .85rem',borderRadius:10,cursor:playing?'default':'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',flexShrink:0,transition:'all 0.2s',boxShadow:`0 2px 10px ${cad.color}30`}}>
+                  {playing&&isA?'▶…':'▶ ÉCOUTER'}
+                </button>
+              </div>
+              {/* Emotion */}
+              <div style={{padding:'.65rem .85rem',background:`${cad.color}10`,borderRadius:10,marginBottom:'.65rem'}}>
+                <div style={{fontSize:9,color:cad.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>RESSENTI</div>
+                <p style={{fontSize:12,opacity:.75,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{cad.emotion}</p>
+              </div>
+              <div style={{padding:'.65rem .85rem',background:'rgba(255,255,255,0.03)',borderRadius:10}}>
+                <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>UTILISATION</div>
+                <p style={{fontSize:11,opacity:.6,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{cad.usage}</p>
+              </div>
+            </div>
+          );
+        })}
       </div>
-
-      {/* Explanation */}
-      <div style={{padding:'1rem',background:'rgba(133,193,233,0.05)',border:'0.5px solid rgba(133,193,233,0.15)',borderRadius:4,marginBottom:'1.25rem'}}>
-        <div style={{fontSize:10,color:'#85C1E9',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>POURQUOI ÇA FONCTIONNE</div>
-        <p style={{fontSize:13,opacity:.7,lineHeight:1.7,margin:0,fontFamily:'Georgia,serif'}}>{pair.explain}</p>
-      </div>
-
-      {pairIdx < PAIRS.length-1 && (
-        <button onClick={()=>{setPairIdx(i=>i+1);setPhase('tension');setHeard(false);}} style={{width:'100%',padding:'.85rem',background:'rgba(133,193,233,0.1)',border:'1px solid #85C1E9',color:'#85C1E9',borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
-          PAIRE SUIVANTE →
-        </button>
-      )}
     </div>
   );
 }
 
-// Coin de l'Harmonie — landing
+// ── Modulation ────────────────────────────────────────────────────────────────
+function ModulationPage() {
+  const [fromKey, setFromKey]   = useState('C');
+  const [toKey, setToKey]       = useState('G');
+  const [selType, setSelType]   = useState(null);
+
+  const fromSemi = KEY_SEMI[fromKey] || 0;
+  const toSemi   = KEY_SEMI[toKey]   || 0;
+  const diff     = Math.abs(fromSemi - toSemi);
+  const circDiff = Math.min(diff, 12-diff);
+
+  // Emotional context of the destination
+  const DEST_EMOTIONS = {
+    0:'Même tonique — variation de couleur (maj↔min)',
+    1:'Demi-ton — très dramatique, déstabilisant',
+    2:'Ton entier — moderne, inattendu',
+    3:'Tierce mineure — vers le relatif, doux',
+    4:'Tierce majeure — chaleureux, inattendu',
+    5:'Quarte — naturel, voisin proche',
+    6:'Triton — maximal, très distant, choc total',
+    7:'Quinte — le plus naturel, imperceptible',
+  };
+  const emotion = DEST_EMOTIONS[circDiff] || '';
+
+  // Find common tones between two major scales
+  function getScaleNotes(keySemi, scaleFormula=[0,2,4,5,7,9,11]){
+    return scaleFormula.map(s=>(keySemi+s)%12);
+  }
+  const fromNotes = getScaleNotes(fromSemi);
+  const toNotes   = getScaleNotes(toSemi);
+  const commonNotes = fromNotes.filter(n=>toNotes.includes(n));
+
+  // Simple pivot chord: chords that work in both keys
+  const fromDegrees = DIATONIC.majeur.map(d=>({
+    name: CHROMATIC[(fromSemi+d.semi)%12]+(CHORD_TYPES[d.type]?.suffix||''),
+    root: CHROMATIC[(fromSemi+d.semi)%12],
+    type: d.type, fn: d.fn, color: d.color, deg: d.deg
+  }));
+  const toDegrees = DIATONIC.majeur.map(d=>({
+    name: CHROMATIC[(toSemi+d.semi)%12]+(CHORD_TYPES[d.type]?.suffix||''),
+    root: CHROMATIC[(toSemi+d.semi)%12],
+    type: d.type, fn: d.fn, color: d.color, deg: d.deg
+  }));
+  const pivots = fromDegrees.filter(fc=>toDegrees.some(tc=>tc.name===fc.name));
+
+  const disabled = fromKey === toKey;
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.25rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Modulation</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>CHANGER DE TONALITÉ AVEC INTENTION</p>
+      </div>
+
+      {/* Key selection */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:8,alignItems:'start',marginBottom:'1.25rem'}}>
+        {/* From */}
+        <div>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem',textAlign:'center'}}>DÉPART</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
+            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=fromKey===k;return(<button key={k} onClick={()=>setFromKey(k)} style={{background:sel?`${nc}25`:`${nc}10`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}40`:'none'}}>{k}</button>);} )}
+          </div>
+        </div>
+        {/* Arrow */}
+        <div style={{textAlign:'center',paddingTop:'2rem',fontSize:22,opacity:.4}}>→</div>
+        {/* To */}
+        <div>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem',textAlign:'center'}}>ARRIVÉE</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
+            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=toKey===k;return(<button key={k} onClick={()=>setToKey(k)} style={{background:sel?`${nc}25`:`${nc}10`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}40`:'none'}}>{k}</button>);} )}
+          </div>
+        </div>
+      </div>
+
+      {disabled && <div style={{padding:'1rem',background:'rgba(255,255,255,0.04)',borderRadius:12,marginBottom:'1rem',textAlign:'center',fontSize:12,opacity:.5,fontFamily:'monospace'}}>Sélectionne deux tonalités différentes</div>}
+
+      {!disabled && (<>
+        {/* Overview */}
+        <div style={{padding:'1rem',background:'rgba(139,92,246,0.1)',border:'1px solid rgba(139,92,246,0.3)',borderRadius:12,marginBottom:'1.25rem'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.65rem'}}>
+            <span style={{fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',color:'#A78BFA'}}>{fromKey} → {toKey}</span>
+            <span style={{fontSize:11,fontFamily:'monospace',color:'rgba(167,139,250,0.7)',padding:'3px 8px',background:'rgba(139,92,246,0.15)',borderRadius:8}}>{circDiff} quinte{circDiff>1?'s':''}</span>
+          </div>
+          <p style={{fontSize:12,opacity:.65,lineHeight:1.6,margin:'0 0 .65rem',fontFamily:'Georgia,serif',fontStyle:'italic'}}>{emotion}</p>
+          {commonNotes.length>0&&(
+            <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>
+              Notes communes : {commonNotes.map(n=>CHROMATIC[n]).join(', ')} ({commonNotes.length}/7)
+            </div>
+          )}
+        </div>
+
+        {/* Pivot chords */}
+        {pivots.length>0&&(
+          <div style={{marginBottom:'1.25rem',padding:'1rem',background:'rgba(16,185,129,0.08)',border:'1px solid rgba(16,185,129,0.2)',borderRadius:12}}>
+            <div style={{fontSize:10,color:'#10B981',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>ACCORDS PIVOTS POSSIBLES</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {pivots.map((p,i)=>{
+                const asTo=toDegrees.find(t=>t.name===p.name);
+                return(<div key={i} style={{padding:'.5rem .75rem',background:`${p.color}15`,border:`1px solid ${p.color}40`,borderRadius:10}}>
+                  <div style={{fontSize:13,fontWeight:'bold',color:p.color,fontFamily:'monospace',marginBottom:2}}>{p.name}</div>
+                  <div style={{fontSize:9,opacity:.55,fontFamily:'monospace'}}>{p.deg} dans {fromKey} / {asTo?.deg} dans {toKey}</div>
+                </div>);
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Modulation types */}
+        <div style={{marginBottom:'1rem'}}>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>TECHNIQUES DE MODULATION</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {MODULATION_TYPES.map(mt=>{
+              const isA=selType===mt.id;
+              return(<button key={mt.id} onClick={()=>setSelType(isA?null:mt.id)} style={{background:isA?`${mt.color}12`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?mt.color:'rgba(255,255,255,0.08)'}`,borderRadius:12,padding:'.9rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isA?'.65rem':0}}>
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <span style={{fontSize:13,fontWeight:'bold',color:mt.color,fontFamily:'Georgia,serif'}}>{mt.name}</span>
+                    <span style={{fontSize:9,padding:'2px 7px',background:`${mt.color}18`,border:`0.5px solid ${mt.color}40`,borderRadius:6,color:mt.color,fontFamily:'monospace'}}>{mt.diff}</span>
+                  </div>
+                  <span style={{fontSize:12,opacity:.4}}>{isA?'▲':'▼'}</span>
+                </div>
+                {isA&&(<div style={{animation:'fadeIn 0.25s ease'}}>
+                  <p style={{fontSize:12,opacity:.65,lineHeight:1.65,margin:'0 0 .65rem',fontFamily:'Georgia,serif'}}>{mt.desc}</p>
+                  <div style={{padding:'.65rem',background:`${mt.color}10`,borderRadius:8,marginBottom:'.5rem'}}>
+                    <div style={{fontSize:9,color:mt.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>COMMENT FAIRE</div>
+                    <p style={{fontSize:11,opacity:.65,lineHeight:1.55,margin:0,fontFamily:'Georgia,serif'}}>{mt.how}</p>
+                  </div>
+                  <div style={{padding:'.65rem',background:'rgba(255,255,255,0.03)',borderRadius:8,marginBottom:'.5rem'}}>
+                    <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>EFFET SUR L'AUDITEUR</div>
+                    <p style={{fontSize:11,opacity:.65,lineHeight:1.55,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{mt.effect}</p>
+                  </div>
+                  <div style={{padding:'.65rem',background:'rgba(255,255,255,0.03)',borderRadius:8}}>
+                    <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>EXEMPLE</div>
+                    <p style={{fontSize:11,opacity:.65,lineHeight:1.55,margin:0,fontFamily:'monospace'}}>{mt.example}</p>
+                  </div>
+                </div>)}
+              </button>);
+            })}
+          </div>
+        </div>
+      </>)}
+    </div>
+  );
+}
+
+// ── Coin de l'Harmonie ────────────────────────────────────────────────────────
 function CoinHarmoniePage() {
   const [sub, setSub] = useState(null);
   const MODS = [
-    {id:'construction', icon:'🧱', title:"Construction d'accords", subtitle:'ÉTAPE PAR ÉTAPE', color:'#C39BD3', ok:true},
-    {id:'tension',      icon:'⚡', title:'Tension & Résolution',   subtitle:'V7 → I ET VARIATIONS', color:'#F1948A', ok:true},
-    {id:'cadences',     icon:'🎼', title:'Cadences',               subtitle:'PARFAITE · ROMPUE · DEMI', color:'#85C1E9', ok:false},
-    {id:'extensions',   icon:'🎷', title:'Extensions & Tensions',  subtitle:'9e · 11e · 13e', color:'#F7DC6F', ok:false},
+    {id:'composition', icon:'🎹', title:'Composition assistée', subtitle:'GAMME · ÉMOTION · PROGRESSION', color:'#8B5CF6', ok:true},
+    {id:'extensions',  icon:'✨', title:'Extensions & Tensions', subtitle:'9e · #11 · b9 · RESSENTI',      color:'#F59E0B', ok:true},
+    {id:'cadences',    icon:'🎼', title:'Cadences',              subtitle:'PARFAITE · ROMPUE · PLAGALE',   color:'#06B6D4', ok:true},
+    {id:'modulation',  icon:'🔀', title:'Modulation',            subtitle:'CHANGER DE TONALITÉ',            color:'#10B981', ok:true},
   ];
 
   if (sub) {
     const info = MODS.find(m=>m.id===sub);
     return (
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.7)',flexShrink:0}}>
-          <button onClick={()=>setSub(null)} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:2}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)'}>← HARMONIE</button>
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',background:'rgba(13,11,30,0.8)',flexShrink:0}}>
+          <button onClick={()=>setSub(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:8,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}>← HARMONIE</button>
           <span style={{opacity:.2}}>|</span>
           <span style={{fontSize:11,fontFamily:'monospace',color:info?.color,letterSpacing:'.05em'}}>{info?.title.toUpperCase()}</span>
         </div>
         <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-          {sub==='construction' && <ConstructionAccords/>}
-          {sub==='tension'      && <TensionResolution/>}
+          {sub==='composition' && <CompositionAssistee/>}
+          {sub==='extensions'  && <ExtensionsTensions/>}
+          {sub==='cadences'    && <CadencesPage/>}
+          {sub==='modulation'  && <ModulationPage/>}
         </div>
       </div>
     );
@@ -2789,25 +3208,30 @@ function CoinHarmoniePage() {
   return (
     <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
       <div style={{marginBottom:'1.5rem'}}>
-        <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Coin de l'Harmonie</h2>
+        <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em',background:'linear-gradient(90deg,#A78BFA,#F43F5E)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Coin de l'Harmonie</h2>
         <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>COMPRENDRE ET RESSENTIR L'HARMONIE</p>
       </div>
-      <div style={{padding:'1rem',background:'rgba(195,155,211,0.05)',border:'0.5px solid rgba(195,155,211,0.15)',borderRadius:4,marginBottom:'1.5rem'}}>
-        <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>L'harmonie n'est pas un ensemble de règles à mémoriser — c'est un langage à ressentir. Ces modules t'aident à comprendre <em>pourquoi</em> les accords sonnent comme ils sonnent.</p>
+      <div style={{padding:'1rem',background:'rgba(139,92,246,0.08)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:14,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.65,fontFamily:'Georgia,serif'}}>L'harmonie n'est pas un ensemble de règles — c'est un langage que tu apprends à ressentir. Ces 4 modules te donnent les outils pour <em>composer, analyser et émouvoir</em>.</p>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-        {MODS.map(m=>(
-          <button key={m.id} onClick={()=>m.ok&&setSub(m.id)} style={{background:m.ok?`${m.color}08`:'rgba(240,235,224,0.02)',border:`0.5px solid ${m.ok?m.color+'40':'rgba(240,235,224,0.08)'}`,borderRadius:4,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:m.ok?'pointer':'default',textAlign:'left',opacity:m.ok?1:.5,transition:'all 0.2s'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
-              <span style={{fontSize:26}}>{m.icon}</span>
-              {m.ok?<span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:2}}>DISPONIBLE</span>:<span style={{fontSize:8,fontFamily:'monospace',color:'rgba(240,235,224,0.25)',border:'0.5px solid rgba(240,235,224,0.1)',padding:'2px 5px',borderRadius:2}}>BIENTÔT</span>}
-            </div>
-            <div>
-              <div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.ok?m.color:`${m.color}99`,fontFamily:'Georgia,serif'}}>{m.title}</div>
-              <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div>
-            </div>
-          </button>
-        ))}
+        {MODS.map((m,i)=>{
+          const [hov,setHov]=useState(false);
+          return(
+            <button key={m.id} onClick={()=>setSub(m.id)}
+              onMouseEnter={()=>setHov(true)} onMouseLeave={()=>setHov(false)}
+              style={{background:hov?`${m.color}15`:`${m.color}08`,border:`1.5px solid ${hov?m.color:m.color+'40'}`,borderRadius:16,padding:'1.1rem',display:'flex',flexDirection:'column',gap:8,cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',transform:hov?'translateY(-3px) scale(1.02)':'translateY(0) scale(1)',boxShadow:hov?`0 10px 28px ${m.color}30`:'none'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                <span style={{fontSize:28}}>{m.icon}</span>
+                <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 6px',borderRadius:8}}>DISPONIBLE</span>
+              </div>
+              <div>
+                <div style={{fontSize:14,fontWeight:'bold',color:m.color,fontFamily:'Georgia,serif',marginBottom:4}}>{m.title}</div>
+                <div style={{fontSize:9,opacity:.5,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div>
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -3113,15 +3537,38 @@ function ConceptCard({ concept }) {
 // ── ApprentissageLanding & ApprentissagePage ──────────────────────────────────
 function ApprentissageLanding({onNavigate}){
   useEffect(()=>{ notifySectionVisit(); },[]);
-  return(<div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
-    <div style={{marginBottom:'1.75rem'}}>
-      <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.75rem',letterSpacing:'-.02em'}}>Apprentissage</h2>
-      <p style={{fontSize:12,lineHeight:1.65,color:'rgba(240,235,224,0.45)',fontFamily:'Georgia,serif',fontStyle:'italic',margin:0,paddingLeft:'.75rem',borderLeft:'2px solid rgba(240,235,224,0.15)'}}>
+  return(<div style={{overflowY:'auto',flex:1}}>
+    {/* Hero section */}
+    <div style={{
+      padding:'2rem 1.25rem 1.5rem',
+      background:'linear-gradient(160deg, rgba(139,92,246,0.2) 0%, rgba(59,130,246,0.1) 50%, transparent 100%)',
+      borderBottom:'1px solid rgba(255,255,255,0.07)',
+      marginBottom:'1.25rem',
+      position:'relative',overflow:'hidden',
+    }}>
+      {/* Decorative orb */}
+      <div style={{position:'absolute',top:-40,right:-30,width:160,height:160,borderRadius:'50%',background:'radial-gradient(circle, rgba(139,92,246,0.2) 0%, transparent 70%)',pointerEvents:'none'}}/>
+      <div style={{position:'absolute',bottom:-20,left:-20,width:100,height:100,borderRadius:'50%',background:'radial-gradient(circle, rgba(59,130,246,0.15) 0%, transparent 70%)',pointerEvents:'none'}}/>
+      <h2 style={{
+        fontSize:28, fontWeight:'bold', marginBottom:'.85rem',
+        letterSpacing:'-.03em',
+        background:'linear-gradient(90deg, #A78BFA, #60A5FA)',
+        WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
+      }}>Apprentissage</h2>
+      <p style={{
+        fontSize:12.5, lineHeight:1.7,
+        color:'rgba(255,255,255,0.55)',
+        fontFamily:'Georgia,serif', fontStyle:'italic',
+        margin:0, paddingLeft:'.9rem',
+        borderLeft:'2.5px solid rgba(139,92,246,0.6)',
+        position:'relative',zIndex:1,
+      }}>
         "Les 4 essentiels à développer pour un pianiste sont son répertoire, sa technique, son oreille et sa connaissance de la théorie."
       </p>
     </div>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-      {APPRENTISSAGE_SECTIONS.map(s=>(<SectionCard key={s.id} {...s} onClick={()=>!s.lock&&onNavigate(s.id)}/>))}
+    {/* Section cards */}
+    <div style={{padding:'0 1.25rem 1.5rem',display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:12}}>
+      {APPRENTISSAGE_SECTIONS.map((s,i)=>(<div key={s.id} style={{animation:`fadeIn 0.4s ease ${i*0.06}s both`}}><SectionCard {...s} onClick={()=>!s.lock&&onNavigate(s.id)}/></div>))}
     </div>
   </div>);
 }
@@ -3314,24 +3761,76 @@ function JournalPage() {
 
 // ── Compétences Page ──────────────────────────────────────────────────────────
 function CompetencesPage({skills,instrument,setInstrument,stats}){
-  const cards=[{label:'Temps de jeu',value:formatTime(stats.totalSeconds),icon:'⏱'},{label:'Exercices réalisés',value:stats.totalExercises||0,icon:'✓'},{label:'Sessions totales',value:stats.sessionsCount||0,icon:'◈'},{label:'Clés gagnées',value:`🗝️ ${stats.keys||0}`,icon:'🗝️'}];
+  const STAT_CARDS=[
+    {label:'Temps de jeu', value:formatTime(stats.totalSeconds), icon:'⏱', grad:'linear-gradient(135deg,#8B5CF6,#6D28D9)', glow:'139,92,246'},
+    {label:'Exercices',    value:stats.totalExercises||0,         icon:'✓',  grad:'linear-gradient(135deg,#06B6D4,#0284C7)', glow:'6,182,212'},
+    {label:'Sessions',     value:stats.sessionsCount||0,          icon:'◈',  grad:'linear-gradient(135deg,#10B981,#047857)', glow:'16,185,129'},
+    {label:'Clés',         value:`🗝️ ${stats.keys||0}`,           icon:'🗝️', grad:'linear-gradient(135deg,#F59E0B,#D97706)', glow:'245,158,11'},
+  ];
   return(<div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
-    <div style={{marginBottom:'1.25rem'}}>
-      <div style={{fontSize:10,letterSpacing:'.2em',opacity:.28,fontFamily:'monospace',marginBottom:'.65rem'}}>INSTRUMENT</div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{INSTRUMENTS.map(inst=>(<button key={inst.id} onClick={()=>inst.available&&setInstrument(inst.id)} style={{background:instrument===inst.id?'rgba(195,155,211,0.15)':'rgba(240,235,224,0.03)',border:`0.5px solid ${instrument===inst.id?'#C39BD3':'rgba(240,235,224,0.1)'}`,color:!inst.available?'rgba(240,235,224,0.2)':instrument===inst.id?'#C39BD3':'rgba(240,235,224,0.55)',padding:'.45rem .9rem',borderRadius:2,cursor:inst.available?'pointer':'not-allowed',fontFamily:'monospace',fontSize:11,transition:'all 0.2s',display:'flex',alignItems:'center',gap:6}}><span>{inst.icon}</span><span>{inst.label}</span>{!inst.available&&<span style={{fontSize:8,opacity:.35}}>BIENTÔT</span>}</button>))}</div>
+    {/* Instrument selector */}
+    <div style={{marginBottom:'1.5rem'}}>
+      <div style={{fontSize:10,letterSpacing:'.2em',opacity:.4,fontFamily:'monospace',marginBottom:'.65rem'}}>INSTRUMENT</div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{INSTRUMENTS.map(inst=>{
+        const isA=instrument===inst.id;
+        return(<button key={inst.id} onClick={()=>inst.available&&setInstrument(inst.id)}
+          style={{background:isA?'linear-gradient(135deg,#8B5CF6,#6D28D9)':'rgba(255,255,255,0.05)',
+            border:`1.5px solid ${isA?'transparent':isA?'rgba(139,92,246,0.4)':'rgba(255,255,255,0.1)'}`,
+            color:!inst.available?'rgba(255,255,255,0.2)':'#fff',
+            padding:'.5rem 1rem',borderRadius:12,cursor:inst.available?'pointer':'not-allowed',
+            fontFamily:'monospace',fontSize:11,transition:'all 0.2s',display:'flex',alignItems:'center',gap:6,
+            boxShadow:isA?'0 4px 16px rgba(139,92,246,0.4)':'none'}}>
+          <span style={{fontSize:16}}>{inst.icon}</span><span>{inst.label}</span>
+          {!inst.available&&<span style={{fontSize:8,opacity:.35}}>BIENTÔT</span>}
+        </button>);
+      })}</div>
     </div>
-    <div style={{marginBottom:'.5rem'}}>
-      <div style={{fontSize:10,letterSpacing:'.2em',opacity:.28,fontFamily:'monospace',marginBottom:'.25rem'}}>GRAPHE DE COMPÉTENCES</div>
+
+    {/* Radar chart */}
+    <div style={{marginBottom:'1.25rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:16}}>
+      <div style={{fontSize:10,letterSpacing:'.2em',opacity:.35,fontFamily:'monospace',marginBottom:'.25rem'}}>COMPÉTENCES</div>
       <RadarChart skills={skills}/>
-      <div style={{display:'flex',gap:12,justifyContent:'center',flexWrap:'wrap',marginTop:'.25rem'}}>{skills.map(s=>(<div key={s.id} style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:6,height:6,borderRadius:'50%',background:s.color}}/><span style={{fontSize:9,fontFamily:'monospace',opacity:.4}}>{s.label}</span></div>))}</div>
-    </div>
-    <div style={{marginBottom:'1.75rem'}}>{skills.map(s=>(<div key={s.id} style={{marginBottom:9}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}><span style={{fontSize:11,fontFamily:'monospace',opacity:.55}}>{s.label}</span><span style={{fontSize:11,fontFamily:'monospace',color:s.color}}>{s.value}%</span></div><div style={{height:4,background:'rgba(240,235,224,0.07)',borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${s.value}%`,background:s.color,borderRadius:2}}/></div></div>))}</div>
-    <div style={{marginBottom:'1rem'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.28,fontFamily:'monospace',marginBottom:'.75rem'}}>STATISTIQUES</div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:8}}>
-        {cards.map((s,i)=>(<div key={i} style={{background:'rgba(240,235,224,0.03)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:4,padding:'1rem .75rem',textAlign:'center'}}><div style={{fontSize:20,fontWeight:'bold',color:'#C39BD3',fontFamily:'Georgia,serif',lineHeight:1,marginBottom:5}}>{s.value}</div><div style={{fontSize:8,opacity:.3,fontFamily:'monospace',letterSpacing:'.05em',lineHeight:1.4}}>{s.label.toUpperCase()}</div></div>))}
+      <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap',marginTop:'.35rem'}}>
+        {skills.map(s=>(<div key={s.id} style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:7,height:7,borderRadius:'50%',background:s.color,boxShadow:`0 0 6px ${s.color}`}}/><span style={{fontSize:9,fontFamily:'monospace',opacity:.5}}>{s.label}</span></div>))}
       </div>
     </div>
-    <div style={{padding:'1rem',background:'rgba(195,155,211,0.04)',border:'0.5px solid rgba(195,155,211,0.1)',borderRadius:4}}><div style={{fontSize:10,color:'#C39BD3',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.4rem'}}>PROCHAINEMENT</div><p style={{fontSize:12,opacity:.4,lineHeight:1.6,fontFamily:'Georgia,serif',margin:0}}>Historique des sessions, accords maîtrisés, intervalles reconnus, progression hebdomadaire...</p></div>
+
+    {/* Skill bars */}
+    <div style={{marginBottom:'1.5rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:16}}>
+      {skills.map(s=>(<div key={s.id} style={{marginBottom:10}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}>
+          <span style={{fontSize:11,fontFamily:'monospace',color:'rgba(255,255,255,0.7)',letterSpacing:'.04em'}}>{s.label}</span>
+          <span style={{fontSize:11,fontFamily:'monospace',color:s.color,fontWeight:'bold'}}>{s.value}%</span>
+        </div>
+        <div style={{height:6,background:'rgba(255,255,255,0.07)',borderRadius:6,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${s.value}%`,background:s.color,borderRadius:6,boxShadow:`0 0 10px ${s.color}80`,transition:'width 0.8s cubic-bezier(0.34,1.56,0.64,1)'}}/>
+        </div>
+      </div>))}
+    </div>
+
+    {/* Stat cards */}
+    <div style={{marginBottom:'1rem'}}>
+      <div style={{fontSize:10,letterSpacing:'.2em',opacity:.35,fontFamily:'monospace',marginBottom:'.75rem'}}>STATISTIQUES</div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+        {STAT_CARDS.map((s,i)=>(<div key={i} style={{
+          background:s.grad, borderRadius:16, padding:'1.1rem .9rem',
+          textAlign:'center', position:'relative', overflow:'hidden',
+          boxShadow:`0 8px 24px rgba(${s.glow},0.3)`,
+          border:'1.5px solid transparent',
+        }}>
+          <div style={{fontSize:26,marginBottom:6,filter:'drop-shadow(0 2px 6px rgba(0,0,0,0.3))'}}>{s.icon}</div>
+          <div style={{fontSize:22,fontWeight:'bold',color:'#fff',fontFamily:'Georgia,serif',lineHeight:1,marginBottom:4,textShadow:'0 1px 4px rgba(0,0,0,0.3)'}}>{s.value}</div>
+          <div style={{fontSize:9,color:'rgba(255,255,255,0.75)',fontFamily:'monospace',letterSpacing:'.06em'}}>{s.label.toUpperCase()}</div>
+          {/* Shine */}
+          <div style={{position:'absolute',top:-20,right:-20,width:70,height:70,background:'rgba(255,255,255,0.08)',borderRadius:'50%'}}/>
+        </div>))}
+      </div>
+    </div>
+
+    <div style={{padding:'1rem',background:'rgba(139,92,246,0.08)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:12}}>
+      <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.4rem'}}>PROCHAINEMENT</div>
+      <p style={{fontSize:12,opacity:.5,lineHeight:1.6,fontFamily:'Georgia,serif',margin:0}}>Historique des sessions, accords maîtrisés, intervalles reconnus, progression hebdomadaire...</p>
+    </div>
   </div>);
 }
 
@@ -3351,8 +3850,9 @@ export default function ChordApp(){
   const [showTip,setShowTip]=useState(false);
   const [showDefis,setShowDefis]=useState(false);
   const [stats,setStats]=useState(()=>resetDailyIfNeeded(loadStats()));
-  const [themeId,setThemeId]=useState(()=>{ try{return localStorage.getItem('cs_theme')||'classique';}catch{return'classique';} });
-  const theme = THEMES[themeId] || THEMES.classique;
+  const [themeId,setThemeId]=useState(()=>{ try{return localStorage.getItem('cs_theme')||'cosmos';}catch{return'cosmos';} });
+  const [pageKey,setPageKey]=useState(0);
+  const theme = THEMES[themeId] || THEMES.cosmos;
 
   const cycleTheme = () => {
     const idx = THEME_IDS.indexOf(themeId);
@@ -3392,47 +3892,119 @@ export default function ChordApp(){
   const NC={competences:'#C39BD3',apprentissage:'#85C1E9',journal:'#82E0AA',partage:'#F7DC6F'};
   const keys=stats.keys||0;
 
-  return(<div style={{minHeight:'100vh',background:theme.bg,fontFamily:"'Georgia',serif",color:theme.text,display:'flex',flexDirection:'column',position:'relative',overflow:'hidden'}}>
+  return(<div style={{minHeight:'100vh',background:theme.bgGrad,fontFamily:"'Georgia',serif",color:theme.text,display:'flex',flexDirection:'column',position:'relative',overflow:'hidden'}}>
 
-    {/* Inject theme CSS */}
+    {/* CSS */}
     <style>{`
-      @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-      @keyframes slideUp{from{opacity:0;transform:translateY(16px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}}
-      @keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+      @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes slideUp{from{opacity:0;transform:translateY(20px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+      @keyframes slideInRight{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
+      @keyframes pageIn{from{opacity:0;transform:translateY(12px) scale(0.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+      @keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(12px,-18px) scale(1.04)}}
       *{box-sizing:border-box} button{cursor:pointer}
+      ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
       ${theme.css||''}
     `}</style>
 
+    {/* Background orbs — décoratifs */}
+    <div style={{position:'fixed',inset:0,pointerEvents:'none',overflow:'hidden',zIndex:0}}>
+      <div style={{position:'absolute',top:'-15%',left:'-10%',width:420,height:420,borderRadius:'50%',background:`radial-gradient(circle, rgba(139,92,246,0.14) 0%, transparent 70%)`,animation:'orbFloat 12s ease-in-out infinite'}}/>
+      <div style={{position:'absolute',bottom:'-10%',right:'-8%',width:380,height:380,borderRadius:'50%',background:`radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)`,animation:'orbFloat 16s ease-in-out infinite reverse'}}/>
+      <div style={{position:'absolute',top:'40%',right:'-5%',width:260,height:260,borderRadius:'50%',background:`radial-gradient(circle, rgba(236,72,153,0.08) 0%, transparent 70%)`,animation:'orbFloat 10s ease-in-out infinite 3s'}}/>
+    </div>
+
     {/* Header */}
-    <header style={{position:'fixed',top:0,left:0,right:0,padding:'.85rem 1.25rem',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`0.5px solid ${theme.borderMuted}`,zIndex:10,background:theme.headerBg,backdropFilter:'blur(12px)'}}>
-      <span style={{fontSize:12,letterSpacing:'.2em',opacity:.5,fontFamily:'monospace',color:theme.text}}>CHORD·STUDIO</span>
+    <header style={{position:'fixed',top:0,left:0,right:0,padding:'.8rem 1.25rem',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`1px solid ${theme.borderMuted}`,zIndex:10,background:theme.headerBg,backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)'}}>
+      {/* Logo gradient */}
+      <span style={{fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif',letterSpacing:'.12em',background:theme.logoGrad,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
+        CHORD·STUDIO
+      </span>
       <div style={{display:'flex',gap:7,alignItems:'center'}}>
-        {/* Theme switcher */}
-        <button onClick={cycleTheme} title={`Thème : ${theme.label}`}
-          style={{background:'transparent',border:`0.5px solid ${theme.border}`,color:theme.textMuted,padding:'.35rem .65rem',borderRadius:2,cursor:'pointer',fontSize:13,transition:'all 0.2s',lineHeight:1}}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor=theme.text;e.currentTarget.style.color=theme.text;}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.color=theme.textMuted;}}>
+        {/* Theme cycle */}
+        <button onClick={()=>{
+          const idx=THEME_IDS.indexOf(themeId);
+          const next=THEME_IDS[(idx+1)%THEME_IDS.length];
+          setThemeId(next);
+          try{localStorage.setItem('cs_theme',next);}catch{}
+        }} title={`Thème : ${theme.label}`}
+          style={{background:theme.surface,border:`1px solid ${theme.border}`,color:theme.text,padding:'.3rem .6rem',borderRadius:10,cursor:'pointer',fontSize:14,transition:'all 0.2s',lineHeight:1,boxShadow:`0 2px 8px rgba(0,0,0,0.2)`}}
+          onMouseEnter={e=>{e.currentTarget.style.transform='scale(1.1)';}}
+          onMouseLeave={e=>{e.currentTarget.style.transform='scale(1)';}}>
           {theme.icon}
         </button>
-        {/* Keys + Défis */}
-        <button onClick={()=>setShowDefis(v=>!v)} style={{display:'flex',alignItems:'center',gap:6,background:showDefis?'rgba(247,220,111,0.12)':'transparent',border:`0.5px solid ${showDefis?'rgba(247,220,111,0.4)':theme.border}`,color:showDefis?'#F7DC6F':theme.textMuted,padding:'.35rem .85rem',borderRadius:2,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
-          <span style={{fontSize:13}}>🗝️</span>
+        {/* Défis */}
+        <button onClick={()=>setShowDefis(v=>!v)} style={{
+          display:'flex',alignItems:'center',gap:5,
+          background:showDefis?'rgba(245,158,11,0.2)':theme.surface,
+          border:`1px solid ${showDefis?'rgba(245,158,11,0.5)':theme.border}`,
+          color:showDefis?'#FBBF24':theme.textMuted,
+          padding:'.3rem .8rem',borderRadius:10,cursor:'pointer',fontSize:11,
+          fontFamily:'monospace',letterSpacing:'.06em',transition:'all 0.2s',
+          boxShadow:showDefis?'0 2px 12px rgba(245,158,11,0.25)':'none'}}>
+          <span style={{fontSize:12}}>🗝️</span>
           <span style={{fontWeight:'bold'}}>{keys}</span>
-          <span style={{opacity:.6}}>DÉFIS</span>
+          <span style={{opacity:.65}}>DÉFIS</span>
         </button>
-        <button onClick={()=>setShowTip(v=>!v)} style={{background:'transparent',border:`0.5px solid ${showTip?'rgba(247,220,111,0.5)':theme.border}`,color:showTip?'#F7DC6F':theme.textMuted,padding:'.35rem .85rem',borderRadius:2,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>💡</button>
+        {/* Conseil */}
+        <button onClick={()=>setShowTip(v=>!v)} style={{
+          background:showTip?'rgba(245,158,11,0.15)':theme.surface,
+          border:`1px solid ${showTip?'rgba(245,158,11,0.4)':theme.border}`,
+          color:showTip?'#FBBF24':theme.textMuted,
+          padding:'.3rem .75rem',borderRadius:10,cursor:'pointer',fontSize:12,
+          transition:'all 0.2s'}}>💡</button>
       </div>
     </header>
 
-    <div style={{flex:1,paddingTop:55,paddingBottom:64,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-      {page==='competences'&&<CompetencesPage skills={skills} instrument={instrument} setInstrument={setInstrument} stats={stats}/>}
-      {page==='apprentissage'&&<ApprentissagePage sub={apprentissageSub} setSub={setApprentiassageSub}/>}
-      {page==='partage'&&<PlaceholderPage title="Partage" icon="↗" description="PARTAGE TA PROGRESSION BIENTÔT"/>}
+    {/* Pages avec transition */}
+    <div style={{flex:1,paddingTop:58,paddingBottom:72,display:'flex',flexDirection:'column',overflow:'hidden',position:'relative',zIndex:1}}>
+      <div key={page+pageKey} style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',animation:'pageIn 0.32s cubic-bezier(0.34,1.20,0.64,1)'}}>
+        {page==='competences'&&<CompetencesPage skills={skills} instrument={instrument} setInstrument={setInstrument} stats={stats}/>}
+        {page==='apprentissage'&&<ApprentissagePage sub={apprentissageSub} setSub={setApprentiassageSub}/>}
+        {page==='partage'&&<PlaceholderPage title="Partage" icon="↗" description="PARTAGE TA PROGRESSION BIENTÔT"/>}
         {page==='journal'&&<JournalPage/>}
+      </div>
     </div>
 
-    <nav style={{position:'fixed',bottom:0,left:0,right:0,display:'flex',borderTop:`0.5px solid ${theme.borderMuted}`,background:theme.navBg,backdropFilter:'blur(12px)',zIndex:10}}>
-      {NAV.map(({id,label,icon})=>{const isA=page===id,ac=NC[id];return(<button key={id} onClick={()=>{setPage(id);}} style={{flex:1,padding:'.7rem .25rem',background:'none',border:'none',color:isA?ac:theme.textMuted,cursor:'pointer',transition:'all 0.2s',display:'flex',flexDirection:'column',alignItems:'center',gap:3,borderTop:isA?`1.5px solid ${ac}`:'1.5px solid transparent'}}><span style={{fontSize:15}}>{icon}</span><span style={{fontSize:8,fontFamily:'monospace',letterSpacing:'.04em'}}>{label.toUpperCase()}</span></button>);})}
+    {/* Navigation pill-style */}
+    <nav style={{
+      position:'fixed',bottom:0,left:0,right:0,
+      display:'flex',gap:4,
+      padding:'.55rem .75rem calc(.55rem + env(safe-area-inset-bottom))',
+      background:theme.navBg,
+      backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)',
+      borderTop:`1px solid ${theme.borderMuted}`,
+      zIndex:10,
+    }}>
+      {NAV.map(({id,label,icon})=>{
+        const isA=page===id, ac=NC[id];
+        return(<button key={id} onClick={()=>{
+          setPage(id);
+          setPageKey(k=>k+1);
+        }} style={{
+          flex:1,
+          padding:'.5rem .25rem .45rem',
+          background: isA ? theme.navActive : 'transparent',
+          border: 'none',
+          borderRadius: 14,
+          color: isA ? ac : theme.textMuted,
+          cursor: 'pointer',
+          transition: 'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',
+          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+          transform: isA ? 'scale(1.06)' : 'scale(1)',
+          boxShadow: isA ? `0 2px 14px rgba(0,0,0,0.2)` : 'none',
+        }}>
+          <span style={{
+            fontSize: isA ? 18 : 15,
+            transition: 'all 0.25s ease',
+            filter: isA ? `drop-shadow(0 0 6px ${ac})` : 'none',
+          }}>{icon}</span>
+          <span style={{
+            fontSize: 8, fontFamily: 'monospace', letterSpacing: '.03em',
+            fontWeight: isA ? 'bold' : 'normal',
+            opacity: isA ? 1 : 0.55,
+          }}>{label.toUpperCase()}</span>
+        </button>);
+      })}
     </nav>
 
     {showTip&&<TipPopup tip={TIPS[tipIndex]} onClose={()=>setShowTip(false)} onNext={()=>setTipIndex(i=>(i+1)%TIPS.length)}/>}
