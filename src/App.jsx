@@ -969,80 +969,85 @@ function MelodieSection({ onBack }) {
     { id:'hard',   label:'Difficile',length:8, scale:MAJOR_SCALE_SEMIS, minNote:0,  maxNote:19, lives:2, color:'#F1948A' },
   ];
 
-  const [screen,    setScreen]    = useState('config');  // config | play | result
-  const [difficulty,setDifficulty]= useState(DIFFICULTIES[0]);
-  const [melody,    setMelody]    = useState([]);
-  const [userInput, setUserInput] = useState([]);
-  const [lives,     setLives]     = useState(5);
-  const [feedback,  setFeedback]  = useState(null); // null | 'correct' | 'wrong'
-  const [score,     setScore]     = useState({ correct:0, total:0 });
-  const [round,     setRound]     = useState(0);
-  const [tempoFactor, setTempoFactor] = useState(1); // 1 = normal, 0.5 = lent
+  const [screen,      setScreen]      = useState('config');
+  const [difficulty,  setDifficulty]  = useState(DIFFICULTIES[0]);
+  const [melody,      setMelody]      = useState([]);
+  const [userInput,   setUserInput]   = useState([]);
+  const [lives,       setLives]       = useState(5);
+  const [feedback,    setFeedback]    = useState(null);
+  const [score,       setScore]       = useState({ correct:0, total:0 });
+  const [round,       setRound]       = useState(0);
+  const [tempoFactor, setTempoFactor] = useState(1);
+  const [isPlaying,   setIsPlaying]   = useState(false);
 
-  function startRound(diff) {
-    const m = generateMelody(diff.length, diff.scale, diff.minNote, diff.maxNote);
-    setMelody(m);
-    setUserInput([]);
-    setLives(diff.lives);
-    setFeedback(null);
-    setScreen('play');
-    setTimeout(() => playMelody(m, tempoFactor), 600);
+  // Track all scheduled timeouts so we can cancel them
+  const timeoutsRef = useRef([]);
+  function clearAllTimeouts() {
+    timeoutsRef.current.forEach(id => clearTimeout(id));
+    timeoutsRef.current = [];
+    setIsPlaying(false);
   }
 
-  function playMelody(m, factor=1) {
+  // Stop on unmount
+  useEffect(() => () => clearAllTimeouts(), []);
+
+  function scheduledPlayMelody(m, factor=1) {
+    clearAllTimeouts();
+    setIsPlaying(true);
     m.forEach((semi, i) => {
-      setTimeout(() => playNote(semi, 0, 0.8), i * (550 * factor));
+      const id = setTimeout(() => {
+        playNote(semi, 0, 0.8);
+        if (i === m.length - 1) setIsPlaying(false);
+      }, i * (550 * factor));
+      timeoutsRef.current.push(id);
     });
   }
 
+  function startRound(diff) {
+    clearAllTimeouts();
+    const m = generateMelody(diff.length, diff.scale, diff.minNote, diff.maxNote);
+    setMelody(m); setUserInput([]); setLives(diff.lives); setFeedback(null); setScreen('play');
+    const id = setTimeout(() => scheduledPlayMelody(m, tempoFactor), 600);
+    timeoutsRef.current.push(id);
+  }
+
   function handlePianoKey(semi) {
-    if (feedback) return;
+    if (feedback || isPlaying) return;
     const expected = melody[userInput.length];
     if (expected === undefined) return;
-
     playNote(semi, 0, 0.6);
     const correct = semi === expected;
-
     if (correct) {
       const next = [...userInput, semi];
       setUserInput(next);
       setFeedback('correct');
-      setTimeout(() => {
+      const id = setTimeout(() => {
         setFeedback(null);
         if (next.length === melody.length) {
-          // Round complete!
           setScore(s => ({ correct: s.correct+1, total: s.total+1 }));
           const newRound = round + 1;
-          if (newRound >= 5) {
-            setScreen('result');
-          } else {
-            setRound(newRound);
-            const m = generateMelody(difficulty.length, difficulty.scale, difficulty.minNote, difficulty.maxNote);
-            setMelody(m);
-            setUserInput([]);
-            setTimeout(() => playMelody(m, tempoFactor), 700);
-          }
+          if (newRound >= 5) { setScreen('result'); return; }
+          setRound(newRound);
+          const m = generateMelody(difficulty.length, difficulty.scale, difficulty.minNote, difficulty.maxNote);
+          setMelody(m); setUserInput([]);
+          const id2 = setTimeout(() => scheduledPlayMelody(m, tempoFactor), 700);
+          timeoutsRef.current.push(id2);
         }
       }, 300);
+      timeoutsRef.current.push(id);
     } else {
       const newLives = lives - 1;
       setLives(newLives);
       setFeedback('wrong');
-      setTimeout(() => {
+      const id = setTimeout(() => {
         setFeedback(null);
-        if (newLives <= 0) {
-          setScore(s => ({ correct: s.correct, total: s.total+1 }));
-          setScreen('result');
-        }
+        if (newLives <= 0) { setScore(s => ({ correct: s.correct, total: s.total+1 })); setScreen('result'); }
       }, 600);
+      timeoutsRef.current.push(id);
     }
   }
 
-  // Piano interactif cliquable
-  const PLAY_KEYS = PIANO_KEYS_DATA.filter(k => {
-    const inRange = k.absIdx >= difficulty.minNote && k.absIdx <= (difficulty.maxNote + 2);
-    return inRange;
-  });
+  const PLAY_KEYS = PIANO_KEYS_DATA.filter(k => k.absIdx >= difficulty.minNote && k.absIdx <= (difficulty.maxNote + 2));
   const whites = PLAY_KEYS.filter(k=>k.type==='white');
   const blacks = PLAY_KEYS.filter(k=>k.type==='black');
   const minWi  = Math.min(...whites.map(k=>k.wi));
@@ -1050,7 +1055,6 @@ function MelodieSection({ onBack }) {
   function keyColor(absIdx) {
     if (feedback === 'correct' && absIdx === melody[userInput.length-1]) return '#82E0AA';
     if (feedback === 'wrong'   && absIdx === melody[userInput.length])   return '#F1948A';
-    if (melody[userInput.length] === absIdx && !feedback) return `${difficulty.color}60`; // subtle hint
     return null;
   }
 
@@ -1069,7 +1073,6 @@ function MelodieSection({ onBack }) {
           L'app joue une courte mélodie. Tu dois la reproduire note par note sur le piano. Chaque bonne note avance, chaque fausse note coûte une vie. 5 mélodies par session.
         </p>
       </div>
-      {/* Difficulty */}
       <div style={{marginBottom:'1.5rem'}}>
         <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>DIFFICULTÉ</div>
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -1085,7 +1088,6 @@ function MelodieSection({ onBack }) {
           ))}
         </div>
       </div>
-      {/* Tempo */}
       <div style={{marginBottom:'1.5rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.5rem'}}>
           <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em'}}>VITESSE DE LECTURE</div>
@@ -1130,11 +1132,10 @@ function MelodieSection({ onBack }) {
 
   // Play screen
   const currentNoteIdx = userInput.length;
-  const progressPct = (currentNoteIdx / melody.length) * 100;
+  const progressPct    = (currentNoteIdx / melody.length) * 100;
 
   return (
     <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-      {/* Header */}
       <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
         <div>
           <div style={{fontSize:9,fontFamily:'monospace',opacity:.4}}>MÉLODIE {round+1}/5</div>
@@ -1146,11 +1147,11 @@ function MelodieSection({ onBack }) {
       </div>
 
       <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
-        {/* Status */}
         <div style={{textAlign:'center',padding:'1rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':feedback==='wrong'?'rgba(241,148,138,0.1)':'rgba(255,255,255,0.03)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.4)':feedback==='wrong'?'rgba(241,148,138,0.4)':'rgba(255,255,255,0.08)'}`,borderRadius:12,transition:'all 0.2s'}}>
-          {feedback==='correct' && <div style={{fontSize:18,color:'#82E0AA',fontWeight:'bold',fontFamily:'Georgia,serif'}}>✓ Bonne note !</div>}
-          {feedback==='wrong'   && <div style={{fontSize:18,color:'#F1948A',fontWeight:'bold',fontFamily:'Georgia,serif'}}>✗ Mauvaise note</div>}
-          {!feedback && (
+          {isPlaying  && <div style={{fontSize:14,opacity:.6,fontFamily:'monospace',letterSpacing:'.08em',animation:'fadeIn 0.2s ease'}}>🎵 Écoute attentivement…</div>}
+          {!isPlaying && feedback==='correct' && <div style={{fontSize:18,color:'#82E0AA',fontWeight:'bold',fontFamily:'Georgia,serif'}}>✓ Bonne note !</div>}
+          {!isPlaying && feedback==='wrong'   && <div style={{fontSize:18,color:'#F1948A',fontWeight:'bold',fontFamily:'Georgia,serif'}}>✗ Mauvaise note</div>}
+          {!isPlaying && !feedback && (
             <div>
               <div style={{fontSize:11,opacity:.4,fontFamily:'monospace',marginBottom:'.5rem'}}>NOTE {currentNoteIdx+1}/{melody.length} — JOUE LA MÉLODIE</div>
               <div style={{fontSize:13,opacity:.55,fontFamily:'monospace'}}>{SEMI_TO_SOLFEGE[melody[currentNoteIdx]] || '?'}</div>
@@ -1158,9 +1159,9 @@ function MelodieSection({ onBack }) {
           )}
         </div>
 
-        {/* Note progress dots */}
+        {/* Note dots */}
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
-          {melody.map((note,i)=>(
+          {melody.map((_, i)=>(
             <div key={i} style={{width:12,height:12,borderRadius:'50%',
               background:i<currentNoteIdx?difficulty.color:i===currentNoteIdx?`${difficulty.color}60`:'rgba(255,255,255,0.1)',
               border:i===currentNoteIdx?`2px solid ${difficulty.color}`:'2px solid transparent',
@@ -1168,41 +1169,52 @@ function MelodieSection({ onBack }) {
           ))}
         </div>
 
-        {/* Controls */}
+        {/* Controls — avec bouton PAUSE */}
         <div style={{display:'flex',gap:8}}>
-          <button onClick={()=>playMelody(melody,tempoFactor)} style={{flex:1,padding:'.6rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em'}}>🔊 RÉÉCOUTER</button>
-          <button onClick={()=>playMelody(melody,0.5)} style={{flex:1,padding:'.6rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em'}}>🐢 LENT</button>
+          {isPlaying ? (
+            <button onClick={clearAllTimeouts}
+              style={{flex:1,padding:'.6rem',background:'rgba(241,148,138,0.12)',border:'1px solid rgba(241,148,138,0.4)',borderRadius:8,cursor:'pointer',color:'#F1948A',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold'}}>
+              ⏸ PAUSE
+            </button>
+          ) : (
+            <>
+              <button onClick={()=>scheduledPlayMelody(melody,tempoFactor)}
+                style={{flex:1,padding:'.6rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em'}}>
+                🔊 RÉÉCOUTER
+              </button>
+              <button onClick={()=>scheduledPlayMelody(melody,0.5)}
+                style={{flex:1,padding:'.6rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em'}}>
+                🐢 LENT
+              </button>
+            </>
+          )}
         </div>
 
         {/* Interactive piano */}
         <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,padding:'.85rem',overflowX:'auto'}}>
-          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>TAPE LA NOTE CORRESPONDANTE</div>
+          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>
+            {isPlaying ? 'ÉCOUTE EN COURS…' : 'TAPE LA NOTE CORRESPONDANTE'}
+          </div>
           <div style={{position:'relative',height:100}}>
-            {/* White keys */}
             {whites.map(({absIdx,wi}) => {
               const adjWi = wi - minWi;
               const c = keyColor(absIdx);
               return (
                 <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
-                  style={{position:'absolute',left:adjWi*34,top:0,width:32,height:95,
-                    background:c||'#f3ede0',border:'1.5px solid #555',borderRadius:'0 0 5px 5px',
-                    cursor:'pointer',transition:'background 0.1s',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:4}}
-                  onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#e0d8c8';}}
+                  style={{position:'absolute',left:adjWi*34,top:0,width:32,height:95,background:c||'#f3ede0',border:'1.5px solid #555',borderRadius:'0 0 5px 5px',cursor:isPlaying?'not-allowed':'pointer',transition:'background 0.1s',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:4}}
+                  onMouseEnter={e=>{if(!c&&!isPlaying)e.currentTarget.style.background='#e0d8c8';}}
                   onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#f3ede0';}}>
                   {c && <span style={{fontSize:8,fontFamily:'monospace',color:'#000',fontWeight:'bold'}}>{SEMI_TO_SOLFEGE[absIdx]}</span>}
                 </div>
               );
             })}
-            {/* Black keys */}
             {blacks.map(({absIdx,wi}) => {
               const adjWi = wi - minWi;
               const c = keyColor(absIdx);
               return (
                 <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
-                  style={{position:'absolute',left:adjWi*34+22,top:0,width:22,height:60,zIndex:2,
-                    background:c||'#181614',border:'1px solid #000',borderRadius:'0 0 4px 4px',
-                    cursor:'pointer',transition:'background 0.1s'}}
-                  onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#333';}}
+                  style={{position:'absolute',left:adjWi*34+22,top:0,width:22,height:60,zIndex:2,background:c||'#181614',border:'1px solid #000',borderRadius:'0 0 4px 4px',cursor:isPlaying?'not-allowed':'pointer',transition:'background 0.1s'}}
+                  onMouseEnter={e=>{if(!c&&!isPlaying)e.currentTarget.style.background='#333';}}
                   onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#181614';}}>
                 </div>
               );
@@ -1210,7 +1222,6 @@ function MelodieSection({ onBack }) {
           </div>
         </div>
 
-        {/* Hint tip */}
         <div style={{padding:'.65rem .9rem',background:'rgba(139,92,246,0.07)',border:'1px solid rgba(139,92,246,0.18)',borderRadius:10}}>
           <p style={{fontSize:11,opacity:.55,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>
             💡 Astuce : écoute la mélodie plusieurs fois avant de jouer. Chante-la mentalement d'abord.
@@ -1245,27 +1256,46 @@ const OREILLE_TIPS = [
 function OreilleAbsolue({ onBack }) {
   const [screen,    setScreen]    = useState('select');
   const [piece,     setPiece]     = useState(null);
-  const [tempo,     setTempo]     = useState(1);   // 1=normal, 0.5=lent
-  const [notes,     setNotes]     = useState([]);  // resolved notes for the piece
+  const [tempo,     setTempo]     = useState(1);
+  const [notes,     setNotes]     = useState([]);
   const [played,    setPlayed]    = useState([]);
   const [feedback,  setFeedback]  = useState(null);
   const [lives,     setLives]     = useState(3);
   const [tipIdx,    setTipIdx]    = useState(0);
   const [showTipBox,setShowTipBox]= useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const timeoutsRef = useRef([]);
+  function clearAllTimeouts() {
+    timeoutsRef.current.forEach(id => clearTimeout(id));
+    timeoutsRef.current = [];
+    setIsPlaying(false);
+  }
+  useEffect(() => () => clearAllTimeouts(), []);
+
+  function scheduledPlayNotes(ns, factor=1) {
+    clearAllTimeouts();
+    setIsPlaying(true);
+    ns.forEach((semi, i) => {
+      const id = setTimeout(() => {
+        playNote(semi, 0, 0.7);
+        if (i === ns.length - 1) setIsPlaying(false);
+      }, i * (480 * factor));
+      timeoutsRef.current.push(id);
+    });
+  }
 
   function loadPiece(p) {
     const resolved = p.random ? generateMelody(7, PENTATONIC_SEMIS, 0, 12) : p.notes;
+    clearAllTimeouts();
     setNotes(resolved); setPiece(p); setPlayed([]); setLives(3); setFeedback(null);
     setScreen('play');
-    setTimeout(() => playNotes(resolved, tempo), 700);
-  }
-
-  function playNotes(ns, factor=1) {
-    ns.forEach((semi, i) => setTimeout(() => playNote(semi, 0, 0.7), i*(480*factor)));
+    const id = setTimeout(() => scheduledPlayNotes(resolved, tempo), 700);
+    timeoutsRef.current.push(id);
   }
 
   function handlePianoKey(semi) {
-    if (feedback) return;
+    if (feedback || isPlaying) return;
     const expected = notes[played.length];
     if (expected === undefined) return;
     playNote(semi, 0, 0.55);
@@ -1274,18 +1304,23 @@ function OreilleAbsolue({ onBack }) {
       const next = [...played, semi];
       setPlayed(next);
       setFeedback('correct');
-      setTimeout(() => {
+      const id = setTimeout(() => {
         setFeedback(null);
         if (next.length >= notes.length) setScreen('done');
       }, 250);
+      timeoutsRef.current.push(id);
     } else {
       setLives(l => {
         const nl = l-1;
-        if (nl<=0) setTimeout(()=>setScreen('fail'),600);
+        if (nl<=0) {
+          const id = setTimeout(()=>setScreen('fail'),600);
+          timeoutsRef.current.push(id);
+        }
         return nl;
       });
       setFeedback('wrong');
-      setTimeout(()=>setFeedback(null), 500);
+      const id = setTimeout(()=>setFeedback(null), 500);
+      timeoutsRef.current.push(id);
     }
   }
 
@@ -1351,7 +1386,7 @@ function OreilleAbsolue({ onBack }) {
         <div style={{fontSize:12,opacity:.5,fontFamily:'monospace'}}>{piece?.title}</div>
       </div>
       <button onClick={()=>loadPiece(piece)} style={{padding:'.9rem',background:'rgba(139,92,246,0.15)',border:'1.5px solid #A78BFA',color:'#A78BFA',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>🔄 REJOUER</button>
-      <button onClick={()=>setScreen('select')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>CHOISIR UNE AUTRE MÉLODIE</button>
+      <button onClick={()=>{clearAllTimeouts();setScreen('select');}} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>CHOISIR UNE AUTRE MÉLODIE</button>
     </div>
   );
 
@@ -1372,28 +1407,37 @@ function OreilleAbsolue({ onBack }) {
         <Hearts total={3} remaining={lives}/>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
-        {/* Feedback */}
-        <div style={{textAlign:'center',padding:'.85rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':feedback==='wrong'?'rgba(241,148,138,0.1)':'rgba(255,255,255,0.03)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.35)':feedback==='wrong'?'rgba(241,148,138,0.35)':'rgba(255,255,255,0.08)'}`,borderRadius:10,transition:'all 0.15s'}}>
-          {feedback==='correct'&&<span style={{color:'#82E0AA',fontSize:16}}>✓ Bonne note !</span>}
-          {feedback==='wrong'  &&<span style={{color:'#F1948A',fontSize:16}}>✗ Mauvaise note !</span>}
-          {!feedback           &&<span style={{fontSize:11,opacity:.45,fontFamily:'monospace'}}>NOTE {curIdx+1}/{notes.length}</span>}
+        <div style={{textAlign:'center',padding:'.85rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':feedback==='wrong'?'rgba(241,148,138,0.1)':isPlaying?'rgba(167,139,250,0.08)':'rgba(255,255,255,0.03)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.35)':feedback==='wrong'?'rgba(241,148,138,0.35)':isPlaying?'rgba(167,139,250,0.3)':'rgba(255,255,255,0.08)'}`,borderRadius:10,transition:'all 0.15s'}}>
+          {isPlaying   && <span style={{color:'#A78BFA',fontSize:14,fontFamily:'monospace',letterSpacing:'.06em',animation:'fadeIn 0.2s'}}>🎵 Écoute en cours…</span>}
+          {!isPlaying && feedback==='correct' && <span style={{color:'#82E0AA',fontSize:16}}>✓ Bonne note !</span>}
+          {!isPlaying && feedback==='wrong'   && <span style={{color:'#F1948A',fontSize:16}}>✗ Mauvaise note !</span>}
+          {!isPlaying && !feedback            && <span style={{fontSize:11,opacity:.45,fontFamily:'monospace'}}>NOTE {curIdx+1}/{notes.length}</span>}
         </div>
-        {/* Controls */}
+        {/* Controls — avec PAUSE */}
         <div style={{display:'flex',gap:8}}>
-          <button onClick={()=>playNotes(notes,1)}   style={{flex:1,padding:'.55rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>▶ Écouter</button>
-          <button onClick={()=>playNotes(notes,0.55)} style={{flex:1,padding:'.55rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>🐢 Lent</button>
-          <button onClick={()=>{setShowTipBox(v=>!v);setTipIdx(Math.floor(Math.random()*OREILLE_TIPS.length));}} style={{flex:1,padding:'.55rem',background:showTipBox?'rgba(139,92,246,0.15)':'rgba(255,255,255,0.05)',border:`1px solid ${showTipBox?'rgba(139,92,246,0.4)':'rgba(255,255,255,0.15)'}`,borderRadius:8,cursor:'pointer',color:showTipBox?'#A78BFA':'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>💡 Conseil</button>
+          {isPlaying ? (
+            <button onClick={clearAllTimeouts}
+              style={{flex:1,padding:'.55rem',background:'rgba(241,148,138,0.12)',border:'1px solid rgba(241,148,138,0.4)',borderRadius:8,cursor:'pointer',color:'#F1948A',fontSize:11,fontFamily:'monospace',fontWeight:'bold'}}>
+              ⏸ PAUSE
+            </button>
+          ) : (
+            <>
+              <button onClick={()=>scheduledPlayNotes(notes,1)}    style={{flex:1,padding:'.55rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>▶ Écouter</button>
+              <button onClick={()=>scheduledPlayNotes(notes,0.55)} style={{flex:1,padding:'.55rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>🐢 Lent</button>
+              <button onClick={()=>{setShowTipBox(v=>!v);setTipIdx(Math.floor(Math.random()*OREILLE_TIPS.length));}} style={{flex:1,padding:'.55rem',background:showTipBox?'rgba(139,92,246,0.15)':'rgba(255,255,255,0.05)',border:`1px solid ${showTipBox?'rgba(139,92,246,0.4)':'rgba(255,255,255,0.15)'}`,borderRadius:8,cursor:'pointer',color:showTipBox?'#A78BFA':'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>💡</button>
+            </>
+          )}
         </div>
         {showTipBox && <div style={{padding:'.75rem',background:'rgba(139,92,246,0.09)',border:'1px solid rgba(139,92,246,0.25)',borderRadius:10,fontSize:12,color:'rgba(255,255,255,0.7)',fontFamily:'Georgia,serif',fontStyle:'italic',animation:'fadeIn 0.2s ease'}}>{OREILLE_TIPS[tipIdx]}</div>}
         {/* Piano */}
         <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,padding:'.85rem',overflowX:'auto'}}>
-          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>TAPE LA NOTE SUIVANTE</div>
+          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>{isPlaying?'ÉCOUTE EN COURS…':'TAPE LA NOTE SUIVANTE'}</div>
           <div style={{position:'relative',height:100}}>
             {whites2.map(({absIdx,wi})=>{
               const c=keyColor2(absIdx);
               return <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
-                style={{position:'absolute',left:wi*34,top:0,width:32,height:95,background:c||'#f3ede0',border:'1.5px solid #555',borderRadius:'0 0 5px 5px',cursor:'pointer',transition:'background 0.1s',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:4}}
-                onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#e0d8c8';}}
+                style={{position:'absolute',left:wi*34,top:0,width:32,height:95,background:c||'#f3ede0',border:'1.5px solid #555',borderRadius:'0 0 5px 5px',cursor:isPlaying?'not-allowed':'pointer',transition:'background 0.1s',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:4}}
+                onMouseEnter={e=>{if(!c&&!isPlaying)e.currentTarget.style.background='#e0d8c8';}}
                 onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#f3ede0';}}>
                 {c&&<span style={{fontSize:8,fontFamily:'monospace',color:'#000',fontWeight:'bold'}}>{SEMI_TO_SOLFEGE[absIdx]}</span>}
               </div>;
@@ -1401,8 +1445,8 @@ function OreilleAbsolue({ onBack }) {
             {blacks2.map(({absIdx,wi})=>{
               const c=keyColor2(absIdx);
               return <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
-                style={{position:'absolute',left:wi*34+22,top:0,width:22,height:60,zIndex:2,background:c||'#181614',border:'1px solid #000',borderRadius:'0 0 4px 4px',cursor:'pointer',transition:'background 0.1s'}}
-                onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#333';}}
+                style={{position:'absolute',left:wi*34+22,top:0,width:22,height:60,zIndex:2,background:c||'#181614',border:'1px solid #000',borderRadius:'0 0 4px 4px',cursor:isPlaying?'not-allowed':'pointer',transition:'background 0.1s'}}
+                onMouseEnter={e=>{if(!c&&!isPlaying)e.currentTarget.style.background='#333';}}
                 onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#181614';}}>
               </div>;
             })}
@@ -3035,54 +3079,152 @@ function ExercicesPage() {
   );
 }
 
-// ── Dictée d'accords ──────────────────────────────────────────────────────────
+// ── Dictée d'accords (auto-avance) ────────────────────────────────────────────
 function DicteeAccords() {
-  const [config,   setConfig]   = useState(null);
-  const [cards,    setCards]    = useState([]);
-  const [idx,      setIdx]      = useState(0);
-  const [stats,    setStats2]   = useState({ easy:0, hard:0, done:0 });
-  const [screen,   setScreen]   = useState('config');
-  const [selected, setSelected] = useState(new Set(['Majeures','Mineures']));
-  const [count,    setCount]    = useState(10);
+  const [screen,    setScreen]    = useState('config');
+  const [selected,  setSelected]  = useState(new Set(['Majeures','Mineures']));
+  const [count,     setCount]     = useState(8);
+  const [secPerCard,setSecPerCard]= useState(5);
+  const [loopMode,  setLoopMode]  = useState(false);
+
+  const [cards,     setCards]     = useState([]);
+  const [idx,       setIdx]       = useState(0);
+  const [timeLeft,  setTimeLeft]  = useState(0);
+  const [running,   setRunning]   = useState(false); // timer ticking
+  const [paused,    setPaused]    = useState(false);
+  const [pulse,     setPulse]     = useState(false); // metronome visual
+  const [history,   setHistory]   = useState([]); // {root,type,result:'ok'|'hard'}
+
+  const timerRef    = useRef(null);
+  const pulseRef    = useRef(null);
+  const timeLeftRef = useRef(timeLeft);
+  timeLeftRef.current = timeLeft;
 
   const types = Object.entries(CHORD_TYPES).map(([t,{label,suffix}])=>({id:t,name:label,suffix,color:CHORD_COLORS[t]||'#C39BD3'}));
 
   function buildCards(selectedTypes, n) {
     const pool = [];
     selectedTypes.forEach(t => {
-      ROOT_NOTES.forEach(r => pool.push({root:r, type:t, name:r+CHORD_TYPES[t].suffix, label:CHORD_TYPES[t].label}));
+      ROOT_NOTES.forEach(r => pool.push({ root:r, type:t, name:r+CHORD_TYPES[t].suffix, label:CHORD_TYPES[t].label }));
     });
-    // Shuffle
     for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
     return pool.slice(0,n);
   }
 
-  function start() {
-    if(selected.size===0)return;
-    const c = buildCards(Array.from(selected), count);
-    setCards(c); setIdx(0); setStats2({easy:0,hard:0,done:0}); setConfig({selected,count}); setScreen('play');
+  function stopAll() {
+    clearInterval(timerRef.current);
+    clearInterval(pulseRef.current);
+    timerRef.current = null; pulseRef.current = null;
+    setRunning(false); setPaused(false); setPulse(false);
+  }
+  useEffect(() => () => stopAll(), []);
+
+  function startTimer(duration) {
+    clearInterval(timerRef.current);
+    setTimeLeft(duration);
+    timerRef.current = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          // auto-advance
+          setIdx(i => {
+            const next = i + 1;
+            if (!loopMode && next >= cards.length) {
+              stopAll();
+              setScreen('result');
+              return i;
+            }
+            const nextIdx = loopMode ? next % cards.length : next;
+            // play sound for next card
+            setTimeout(() => {
+              const card = cards[nextIdx];
+              if (card) {
+                const ri = CHROMATIC.indexOf(card.root);
+                if(ri!==-1) playChordArp(CHORD_TYPES[card.type].formula.map(f=>ri+f+4*12));
+              }
+            }, 80);
+            return nextIdx;
+          });
+          return duration; // reset timer
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Pulse every beat (1s)
+    clearInterval(pulseRef.current);
+    pulseRef.current = setInterval(() => {
+      setPulse(true);
+      setTimeout(() => setPulse(false), 180);
+    }, 1000);
   }
 
-  function markCard(ease) {
-    setStats2(s=>({...s,[ease]:s[ease]+1,done:s.done+1}));
-    // Play the chord
+  function start() {
+    if(selected.size===0) return;
+    const c = buildCards(Array.from(selected), count);
+    setCards(c); setIdx(0); setHistory([]); setRunning(true); setPaused(false);
+    setScreen('play');
+    // Play first chord
+    setTimeout(() => {
+      if(c[0]) {
+        const ri = CHROMATIC.indexOf(c[0].root);
+        if(ri!==-1) playChordArp(CHORD_TYPES[c[0].type].formula.map(f=>ri+f+4*12));
+      }
+    }, 300);
+    setTimeout(() => startTimer(secPerCard), 400);
+  }
+
+  function togglePause() {
+    if (paused) {
+      // Resume
+      setPaused(false);
+      startTimer(timeLeft);
+    } else {
+      // Pause
+      clearInterval(timerRef.current);
+      clearInterval(pulseRef.current);
+      setPaused(true); setRunning(false); setPulse(false);
+    }
+  }
+
+  function markAndNext(result) {
     const card = cards[idx];
+    if(card) setHistory(h => [...h, { ...card, result }]);
+    const next = idx + 1;
+    if (!loopMode && next >= cards.length) { stopAll(); setScreen('result'); return; }
+    const nextIdx = loopMode ? next % cards.length : next;
+    setIdx(nextIdx);
+    // Play next chord
+    setTimeout(() => {
+      const nc = cards[nextIdx];
+      if(nc) {
+        const ri = CHROMATIC.indexOf(nc.root);
+        if(ri!==-1) playChordArp(CHORD_TYPES[nc.type].formula.map(f=>ri+f+4*12));
+      }
+    }, 80);
+    startTimer(secPerCard);
+  }
+
+  function playCurrentChord() {
+    const card = cards[idx];
+    if(!card) return;
     const ri = CHROMATIC.indexOf(card.root);
     if(ri!==-1) playChordArp(CHORD_TYPES[card.type].formula.map(f=>ri+f+4*12));
-    if(idx>=cards.length-1) { setScreen('result'); return; }
-    setIdx(i=>i+1);
   }
 
-  if(screen==='config') return(
+  // ── Config ──────────────────────────────────────────────────────────────────
+  if (screen==='config') return (
     <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
       <div style={{marginBottom:'1.5rem'}}>
         <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Dictée d'accords</h3>
         <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>JOUE CES ACCORDS SUR TON VRAI PIANO</p>
       </div>
       <div style={{padding:'.9rem',background:'rgba(241,148,138,0.07)',border:'1px solid rgba(241,148,138,0.2)',borderRadius:12,marginBottom:'1.5rem'}}>
-        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.65,fontFamily:'Georgia,serif'}}>Un accord s'affiche. Tu le joues sur ton piano physique, tu entends la référence dans l'app, puis tu passes à la suivante. Indique si c'était facile ou difficile pour suivre ta progression.</p>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.65,fontFamily:'Georgia,serif'}}>
+          Les accords s'enchaînent automatiquement. Tu dois jouer chaque accord sur ton vrai piano avant que le suivant n'arrive. L'objectif : faire rentrer les accords dans la mémoire musculaire.
+        </p>
       </div>
-      {/* Type selection */}
+
+      {/* Chord type selection */}
       <div style={{marginBottom:'1.25rem'}}>
         <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>TYPES D'ACCORDS À TRAVAILLER</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:6}}>
@@ -3093,98 +3235,153 @@ function DicteeAccords() {
               <div style={{width:14,height:14,borderRadius:3,background:on?t.color:'rgba(255,255,255,0.1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                 {on&&<span style={{fontSize:9,color:'#0D0B1E',fontWeight:'bold'}}>✓</span>}
               </div>
-              <div><div style={{fontSize:12,fontWeight:'bold',color:on?t.color:'rgba(255,255,255,0.6)',fontFamily:'monospace'}}>{t.name}</div><div style={{fontSize:9,opacity:.4,fontFamily:'monospace'}}>ex. C{t.suffix}</div></div>
+              <div>
+                <div style={{fontSize:12,fontWeight:'bold',color:on?t.color:'rgba(255,255,255,0.6)',fontFamily:'monospace'}}>{t.name}</div>
+                <div style={{fontSize:9,opacity:.4,fontFamily:'monospace'}}>ex. C{t.suffix}</div>
+              </div>
             </button>);
           })}
         </div>
       </div>
-      {/* Count */}
-      <div style={{marginBottom:'1.5rem'}}>
-        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>NOMBRE DE CARTES</div>
+
+      {/* Timer per card */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>DURÉE PAR ACCORD</div>
         <div style={{display:'flex',gap:8}}>
-          {[5,10,20].map(n=>(
-            <button key={n} onClick={()=>setCount(n)} style={{flex:1,padding:'.65rem',background:count===n?'rgba(241,148,138,0.15)':'rgba(255,255,255,0.03)',border:`1.5px solid ${count===n?'#F1948A':'rgba(255,255,255,0.1)'}`,color:count===n?'#F1948A':'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontFamily:'monospace',fontSize:14,fontWeight:'bold',transition:'all 0.2s'}}>{n}</button>
+          {[[3,'3s 🔥'],[5,'5s'],[8,'8s 🐢'],[12,'12s']].map(([s,label])=>(
+            <button key={s} onClick={()=>setSecPerCard(s)} style={{flex:1,padding:'.6rem .25rem',background:secPerCard===s?'rgba(241,148,138,0.18)':'rgba(255,255,255,0.03)',border:`1.5px solid ${secPerCard===s?'#F1948A':'rgba(255,255,255,0.1)'}`,color:secPerCard===s?'#F1948A':'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontFamily:'monospace',fontSize:12,fontWeight:'bold',transition:'all 0.2s'}}>{label}</button>
           ))}
         </div>
       </div>
-      <button onClick={start} style={{width:'100%',padding:'1rem',background:'rgba(241,148,138,0.15)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+
+      {/* Number of cards */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>NOMBRE D'ACCORDS</div>
+        <div style={{display:'flex',gap:8}}>
+          {[5,8,12,20].map(n=>(
+            <button key={n} onClick={()=>setCount(n)} style={{flex:1,padding:'.6rem',background:count===n?'rgba(241,148,138,0.18)':'rgba(255,255,255,0.03)',border:`1.5px solid ${count===n?'#F1948A':'rgba(255,255,255,0.1)'}`,color:count===n?'#F1948A':'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontFamily:'monospace',fontSize:14,fontWeight:'bold',transition:'all 0.2s'}}>{n}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Loop mode */}
+      <div style={{marginBottom:'1.5rem',padding:'.85rem',background:loopMode?'rgba(241,148,138,0.1)':'rgba(255,255,255,0.03)',border:`1px solid ${loopMode?'rgba(241,148,138,0.35)':'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:'pointer',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}} onClick={()=>setLoopMode(v=>!v)}>
+        <div>
+          <div style={{fontSize:13,fontWeight:'bold',color:loopMode?'#F1948A':'rgba(255,255,255,0.7)',fontFamily:'Georgia,serif'}}>🔁 Mode boucle</div>
+          <div style={{fontSize:10,opacity:.5,fontFamily:'monospace',marginTop:2}}>La séquence recommence indéfiniment</div>
+        </div>
+        <div style={{width:36,height:20,borderRadius:10,background:loopMode?'#F1948A':'rgba(255,255,255,0.2)',position:'relative',transition:'all 0.25s'}}>
+          <div style={{position:'absolute',top:2,left:loopMode?16:2,width:16,height:16,borderRadius:'50%',background:'#fff',transition:'left 0.25s'}}/>
+        </div>
+      </div>
+
+      <button onClick={start}
+        style={{width:'100%',padding:'1rem',background:'rgba(241,148,138,0.15)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
         COMMENCER →
       </button>
     </div>
   );
 
-  if(screen==='result') {
-    const pct = Math.round((stats.easy/(stats.done||1))*100);
-    const mc  = pct>=70?'#82E0AA':pct>=40?'#F7DC6F':'#F1948A';
+  // ── Result ──────────────────────────────────────────────────────────────────
+  if (screen==='result') {
+    const easy = history.filter(h=>h.result==='ok').length;
+    const hard = history.filter(h=>h.result==='hard').length;
+    const pct  = history.length>0?Math.round((easy/history.length)*100):0;
+    const mc   = pct>=70?'#82E0AA':pct>=40?'#F7DC6F':'#F1948A';
+    const hardCards = history.filter(h=>h.result==='hard');
     return(
       <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
         <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
           <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>SESSION TERMINÉE</div>
           <div style={{display:'flex',gap:16,justifyContent:'center',marginBottom:'1rem'}}>
-            <div style={{textAlign:'center'}}><div style={{fontSize:36,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif'}}>{stats.easy}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>FACILE</div></div>
-            <div style={{textAlign:'center'}}><div style={{fontSize:36,fontWeight:'bold',color:'#F1948A',fontFamily:'Georgia,serif'}}>{stats.hard}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>DIFFICILE</div></div>
+            <div style={{textAlign:'center'}}><div style={{fontSize:40,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif'}}>{easy}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>FACILE</div></div>
+            <div style={{textAlign:'center'}}><div style={{fontSize:40,fontWeight:'bold',color:'#F1948A',fontFamily:'Georgia,serif'}}>{hard}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>DIFFICILE</div></div>
           </div>
           <div style={{fontSize:14,opacity:.55,fontFamily:'Georgia,serif'}}>{pct>=70?'Excellente maîtrise !':pct>=40?'Continue à pratiquer ces accords':'Reviens demain — la régularité paie !'}</div>
         </div>
+        {hardCards.length>0&&(
+          <div style={{padding:'1rem',background:'rgba(241,148,138,0.07)',border:'1px solid rgba(241,148,138,0.2)',borderRadius:12}}>
+            <div style={{fontSize:10,color:'#F1948A',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>À RETRAVAILLER</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {hardCards.map((c,i)=><span key={i} style={{fontSize:12,fontFamily:'monospace',color:NOTE_COLORS[c.root]||'#F1948A',padding:'3px 10px',background:`${NOTE_COLORS[c.root]||'#F1948A'}15`,borderRadius:8}}>{c.name}</span>)}
+            </div>
+          </div>
+        )}
         <button onClick={start} style={{padding:'.9rem',background:'rgba(241,148,138,0.15)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>🔄 NOUVELLE SESSION</button>
         <button onClick={()=>setScreen('config')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>⚙ RECONFIGURER</button>
       </div>
     );
   }
 
-  // Play
+  // ── Play ─────────────────────────────────────────────────────────────────────
   const card = cards[idx];
-  if(!card) return null;
-  const nc = NOTE_COLORS[card.root]||'#F1948A';
-  // Piano colors for reference chord
+  if (!card) return null;
+  const nc  = NOTE_COLORS[card.root]||'#F1948A';
   const ri2 = CHROMATIC.indexOf(card.root);
   const pianoC = {};
   if(ri2!==-1) CHORD_TYPES[card.type].formula.forEach(f=>{ const k=(ri2+f)%12; pianoC[k]=nc; pianoC[k+12]=nc; });
+  const timerPct = (timeLeft / secPerCard) * 100;
+  const timerColor = timerPct > 50 ? '#82E0AA' : timerPct > 25 ? '#F7DC6F' : '#F1948A';
 
   return(
     <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-      {/* Progress */}
-      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
-          <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{idx+1}/{cards.length}</span>
-          <span style={{fontSize:10,fontFamily:'monospace',color:'#82E0AA'}}>{stats.easy} facile · <span style={{color:'#F1948A'}}>{stats.hard} difficile</span></span>
+      {/* Timer bar header */}
+      <div style={{padding:'.65rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            {/* Metronome pulse dot */}
+            <div style={{width:10,height:10,borderRadius:'50%',background:pulse?timerColor:'rgba(255,255,255,0.2)',transition:'background 0.1s',boxShadow:pulse?`0 0 8px ${timerColor}80`:'none'}}/>
+            <span style={{fontSize:10,fontFamily:'monospace',opacity:.5}}>{loopMode?'BOUCLE ∞':(`${idx+1}/${cards.length}`)}</span>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <span style={{fontSize:16,fontWeight:'bold',fontFamily:'monospace',color:timerColor,minWidth:20,textAlign:'right'}}>{timeLeft}</span>
+            <span style={{fontSize:10,opacity:.4,fontFamily:'monospace'}}>s</span>
+          </div>
         </div>
-        <div style={{height:3,background:'rgba(255,255,255,0.08)',borderRadius:2}}>
-          <div style={{height:'100%',width:`${(idx/cards.length)*100}%`,background:'#F1948A',borderRadius:2,transition:'width 0.3s ease'}}/>
+        <div style={{height:5,background:'rgba(255,255,255,0.08)',borderRadius:4,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${timerPct}%`,background:timerColor,borderRadius:4,transition:'width 1s linear',boxShadow:`0 0 6px ${timerColor}60`}}/>
         </div>
       </div>
+
       <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
         {/* Card */}
-        <div style={{textAlign:'center',padding:'2rem',background:`${nc}10`,border:`1.5px solid ${nc}40`,borderRadius:16}}>
+        <div style={{textAlign:'center',padding:'1.75rem',background:`${nc}10`,border:`1.5px solid ${nc}40`,borderRadius:16,position:'relative',overflow:'hidden'}}>
           <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'1rem'}}>JOUE CET ACCORD SUR TON PIANO</div>
-          <div style={{fontSize:60,fontWeight:'bold',color:nc,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:6}}>{card.name}</div>
-          <div style={{fontSize:14,opacity:.55,fontFamily:'monospace',marginBottom:'1.25rem'}}>{card.label}</div>
-          <button onClick={()=>{ if(ri2!==-1) playChordArp(CHORD_TYPES[card.type].formula.map(f=>ri2+f+4*12)); }}
+          <div style={{fontSize:62,fontWeight:'bold',color:nc,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:6}}>{card.name}</div>
+          <div style={{fontSize:13,opacity:.55,fontFamily:'monospace',marginBottom:'1.25rem'}}>{card.label}</div>
+          <button onClick={playCurrentChord}
             style={{background:`${nc}18`,border:`1px solid ${nc}60`,color:nc,padding:'.45rem 1.1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em'}}>
-            🔊 ÉCOUTER LA RÉFÉRENCE
+            🔊 ÉCOUTER
           </button>
         </div>
+
         {/* Piano reference */}
         <div style={{padding:'.75rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,overflowX:'auto'}}>
           <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>TOUCHES À ENFONCER</div>
           <PianoKeyboard colors={pianoC}/>
         </div>
-        {/* Notes */}
+
+        {/* Notes circles */}
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
           {CHORD_TYPES[card.type].formula.map(f=>{
-            const n=CHROMATIC[(ri2+f)%12]; const c=NOTE_COLORS[n]||nc;
-            return <div key={f} style={{width:42,height:42,borderRadius:'50%',background:`${c}20`,border:`1.5px solid ${c}60`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:'bold',color:c,fontFamily:'monospace'}}>{n}</div>;
+            const n=CHROMATIC[(ri2+f)%12], c=NOTE_COLORS[n]||nc;
+            return <div key={f} style={{width:40,height:40,borderRadius:'50%',background:`${c}20`,border:`1.5px solid ${c}60`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:'bold',color:c,fontFamily:'monospace'}}>{n}</div>;
           })}
         </div>
-        {/* Actions */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:'auto'}}>
-          <button onClick={()=>markCard('hard')}
-            style={{padding:'1rem',background:'rgba(241,148,138,0.12)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',transition:'all 0.2s'}}>
-            😓 DIFFICILE
+
+        {/* Controls */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+          <button onClick={togglePause}
+            style={{padding:'.8rem .25rem',background:paused?'rgba(247,220,111,0.15)':'rgba(255,255,255,0.05)',border:`1.5px solid ${paused?'#F7DC6F':'rgba(255,255,255,0.15)'}`,color:paused?'#F7DC6F':'rgba(255,255,255,0.6)',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            {paused?'▶ REPRENDRE':'⏸ PAUSE'}
           </button>
-          <button onClick={()=>markCard('easy')}
-            style={{padding:'1rem',background:'rgba(130,224,170,0.12)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',transition:'all 0.2s'}}>
-            ✓ FACILE
+          <button onClick={()=>markAndNext('hard')}
+            style={{padding:'.8rem .25rem',background:'rgba(241,148,138,0.12)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            😓 DUR
+          </button>
+          <button onClick={()=>markAndNext('ok')}
+            style={{padding:'.8rem .25rem',background:'rgba(130,224,170,0.12)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            ✓ OK
           </button>
         </div>
       </div>
