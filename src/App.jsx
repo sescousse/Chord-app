@@ -408,7 +408,7 @@ function CategoryTipPopup({ category, color, onClose }) {
   );
 }
 
-// ── Speed Flashcards ──────────────────────────────────────────────────────────
+// ── Speed Flashcards (conservé pour compatibilité — non utilisé) ──────────────
 function SpeedFlashcards() {
   const ALL_CHORDS = [];
   Object.entries(CHORD_TYPES).forEach(([type,{suffix,label}]) => {
@@ -895,17 +895,676 @@ function AccordOreilleSection({onBack}){
 }
 
 // ── Oreille Page ──────────────────────────────────────────────────────────────
+// ── Données pour la Mélodie et l'Improvisation ───────────────────────────────
+const PENTATONIC_SEMIS  = [0, 2, 4, 7, 9];          // Do penta majeure
+const MAJOR_SCALE_SEMIS = [0, 2, 4, 5, 7, 9, 11];   // Do majeure
+
+// Noms de notes jouables sur le piano (oct. 4 = indices 0-11, oct.5 = 12-23)
+const PIANO_NOTE_NAMES = {
+  0:'C4',2:'D4',4:'E4',5:'F4',7:'G4',9:'A4',11:'B4',
+  12:'C5',14:'D5',16:'E5',17:'F5',19:'G5',21:'A5',23:'B5',
+};
+// Semi → nom solfège
+const SEMI_TO_SOLFEGE = {0:'Do',2:'Ré',4:'Mi',5:'Fa',7:'Sol',9:'La',11:'Si',
+  12:'Do',14:'Ré',16:'Mi',17:'Fa',19:'Sol',21:'La',23:'Si'};
+
+// Génère une mélodie aléatoire dans une gamme donnée
+function generateMelody(length=6, scale=PENTATONIC_SEMIS, minNote=0, maxNote=12) {
+  const available = [];
+  for (let oct=0; oct<=1; oct++) {
+    scale.forEach(s => {
+      const abs = s + oct*12;
+      if (abs>=minNote && abs<=maxNote) available.push(abs);
+    });
+  }
+  const melody = [];
+  let prev = -1;
+  for (let i=0; i<length; i++) {
+    // Avoid same note twice in a row
+    let candidates = available.filter(n => n!==prev);
+    if (candidates.length===0) candidates=available;
+    const note = candidates[Math.floor(Math.random()*candidates.length)];
+    melody.push(note);
+    prev = note;
+  }
+  return melody;
+}
+
+// Styles musicaux pour l'improvisation
+const IMPRO_STYLES = [
+  { id:'blues',   label:'Blues',         color:'#F59E0B',
+    scale:[0,3,5,6,7,10], prog:['C','F','G'], type:'Majeures',
+    desc:'Pentatonique mineure + blue note. La couleur émotionnelle du blues.' },
+  { id:'jazz',    label:'Jazz',          color:'#8B5CF6',
+    scale:[0,2,4,7,9], prog:['D','G','C'], type:'Min. 7',
+    desc:'Mode dorien. L\'espace harmonique du jazz moderne.' },
+  { id:'pop',     label:'Pop',           color:'#06B6D4',
+    scale:[0,2,4,5,7,9,11], prog:['C','G','A','F'], type:'Majeures',
+    desc:'Gamme majeure. Lumineux et accessible, idéal pour commencer.' },
+  { id:'latin',   label:'Latin',         color:'#EF4444',
+    scale:[0,2,3,5,7,8,10], prog:['A','D','E','A'], type:'Mineures',
+    desc:'Mode mineur mélodique. Chaleur et danse, flamenco et bossa.' },
+  { id:'modal',   label:'Modal',         color:'#10B981',
+    scale:[0,2,4,6,7,9,11], prog:['C','D','C','D'], type:'Majeures',
+    desc:'Mode lydien. Sonorité aérienne et mystérieuse, cinéma moderne.' },
+];
+
+function generateImproProgression(style, key='C') {
+  const ri = CHROMATIC.indexOf(key);
+  const prog = style.prog.map(r => {
+    const base = CHROMATIC.indexOf(r);
+    const transposed = CHROMATIC[(base + ri) % 12];
+    return { r: transposed, t: style.type };
+  });
+  return prog;
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── SECTION MÉLODIE (Oreille) ─────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function MelodieSection({ onBack }) {
+  const DIFFICULTIES = [
+    { id:'easy',   label:'Facile',   length:4, scale:PENTATONIC_SEMIS,  minNote:0,  maxNote:12, lives:5, color:'#82E0AA' },
+    { id:'medium', label:'Moyen',    length:6, scale:MAJOR_SCALE_SEMIS, minNote:0,  maxNote:14, lives:3, color:'#F7DC6F' },
+    { id:'hard',   label:'Difficile',length:8, scale:MAJOR_SCALE_SEMIS, minNote:0,  maxNote:19, lives:2, color:'#F1948A' },
+  ];
+
+  const [screen,    setScreen]    = useState('config');  // config | play | result
+  const [difficulty,setDifficulty]= useState(DIFFICULTIES[0]);
+  const [melody,    setMelody]    = useState([]);
+  const [userInput, setUserInput] = useState([]);
+  const [lives,     setLives]     = useState(5);
+  const [feedback,  setFeedback]  = useState(null); // null | 'correct' | 'wrong'
+  const [score,     setScore]     = useState({ correct:0, total:0 });
+  const [round,     setRound]     = useState(0);
+  const [tempoFactor, setTempoFactor] = useState(1); // 1 = normal, 0.5 = lent
+
+  function startRound(diff) {
+    const m = generateMelody(diff.length, diff.scale, diff.minNote, diff.maxNote);
+    setMelody(m);
+    setUserInput([]);
+    setLives(diff.lives);
+    setFeedback(null);
+    setScreen('play');
+    setTimeout(() => playMelody(m, tempoFactor), 600);
+  }
+
+  function playMelody(m, factor=1) {
+    m.forEach((semi, i) => {
+      setTimeout(() => playNote(semi, 0, 0.8), i * (550 * factor));
+    });
+  }
+
+  function handlePianoKey(semi) {
+    if (feedback) return;
+    const expected = melody[userInput.length];
+    if (expected === undefined) return;
+
+    playNote(semi, 0, 0.6);
+    const correct = semi === expected;
+
+    if (correct) {
+      const next = [...userInput, semi];
+      setUserInput(next);
+      setFeedback('correct');
+      setTimeout(() => {
+        setFeedback(null);
+        if (next.length === melody.length) {
+          // Round complete!
+          setScore(s => ({ correct: s.correct+1, total: s.total+1 }));
+          const newRound = round + 1;
+          if (newRound >= 5) {
+            setScreen('result');
+          } else {
+            setRound(newRound);
+            const m = generateMelody(difficulty.length, difficulty.scale, difficulty.minNote, difficulty.maxNote);
+            setMelody(m);
+            setUserInput([]);
+            setTimeout(() => playMelody(m, tempoFactor), 700);
+          }
+        }
+      }, 300);
+    } else {
+      const newLives = lives - 1;
+      setLives(newLives);
+      setFeedback('wrong');
+      setTimeout(() => {
+        setFeedback(null);
+        if (newLives <= 0) {
+          setScore(s => ({ correct: s.correct, total: s.total+1 }));
+          setScreen('result');
+        }
+      }, 600);
+    }
+  }
+
+  // Piano interactif cliquable
+  const PLAY_KEYS = PIANO_KEYS_DATA.filter(k => {
+    const inRange = k.absIdx >= difficulty.minNote && k.absIdx <= (difficulty.maxNote + 2);
+    return inRange;
+  });
+  const whites = PLAY_KEYS.filter(k=>k.type==='white');
+  const blacks = PLAY_KEYS.filter(k=>k.type==='black');
+  const minWi  = Math.min(...whites.map(k=>k.wi));
+
+  function keyColor(absIdx) {
+    if (feedback === 'correct' && absIdx === melody[userInput.length-1]) return '#82E0AA';
+    if (feedback === 'wrong'   && absIdx === melody[userInput.length])   return '#F1948A';
+    if (melody[userInput.length] === absIdx && !feedback) return `${difficulty.color}60`; // subtle hint
+    return null;
+  }
+
+  // Config screen
+  if (screen === 'config') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:'1.5rem'}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',margin:0}}>Dictée Mélodique</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>RECONNAÎTRE ET REPRODUIRE UNE MÉLODIE</p>
+        </div>
+      </div>
+      <div style={{padding:'1rem',background:'rgba(130,224,170,0.07)',border:'1px solid rgba(130,224,170,0.2)',borderRadius:12,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.65,fontFamily:'Georgia,serif'}}>
+          L'app joue une courte mélodie. Tu dois la reproduire note par note sur le piano. Chaque bonne note avance, chaque fausse note coûte une vie. 5 mélodies par session.
+        </p>
+      </div>
+      {/* Difficulty */}
+      <div style={{marginBottom:'1.5rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>DIFFICULTÉ</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {DIFFICULTIES.map(d => (
+            <button key={d.id} onClick={()=>setDifficulty(d)}
+              style={{background:difficulty.id===d.id?`${d.color}15`:'rgba(255,255,255,0.03)',border:`1.5px solid ${difficulty.id===d.id?d.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <span style={{fontSize:14,fontWeight:'bold',color:difficulty.id===d.id?d.color:'#fff',fontFamily:'Georgia,serif'}}>{d.label}</span>
+                <span style={{fontSize:10,opacity:.5,fontFamily:'monospace',marginLeft:10}}>{d.length} notes · {d.lives} vie{d.lives>1?'s':''} · {d.scale===PENTATONIC_SEMIS?'Pentatonique':'Gamme majeure'}</span>
+              </div>
+              {difficulty.id===d.id && <span style={{color:d.color}}>✓</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Tempo */}
+      <div style={{marginBottom:'1.5rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.5rem'}}>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em'}}>VITESSE DE LECTURE</div>
+          <span style={{fontSize:11,fontFamily:'monospace',color:difficulty.color,fontWeight:'bold'}}>{tempoFactor===1?'Normale':'Lente (×0.5)'}</span>
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          {[[1,'🎵 Normale'],[0.5,'🐢 Lente']].map(([v,label])=>(
+            <button key={v} onClick={()=>setTempoFactor(v)} style={{flex:1,padding:'.55rem',background:tempoFactor===v?`${difficulty.color}18`:'transparent',border:`1px solid ${tempoFactor===v?difficulty.color:'rgba(255,255,255,0.12)'}`,borderRadius:8,cursor:'pointer',color:tempoFactor===v?difficulty.color:'rgba(255,255,255,0.45)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s'}}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <button onClick={()=>{setRound(0);setScore({correct:0,total:0});startRound(difficulty);}}
+        style={{width:'100%',padding:'1rem',background:`${difficulty.color}18`,border:`1.5px solid ${difficulty.color}`,color:difficulty.color,borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+        COMMENCER →
+      </button>
+    </div>
+  );
+
+  // Result screen
+  if (screen === 'result') {
+    const pct = score.total>0?Math.round((score.correct/score.total)*100):0;
+    const mc  = pct>=80?'#82E0AA':pct>=50?'#F7DC6F':'#F1948A';
+    return (
+      <div style={{flex:1,overflowY:'auto',padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
+          <div style={{fontSize:68,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/5</span></div>
+          <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
+          <div style={{fontSize:13,opacity:.5,fontFamily:'Georgia,serif',marginTop:8}}>{pct>=80?'Excellent ! Ton oreille est affûtée 🎉':pct>=50?'Bien joué, continue !':'Entraîne-toi encore !'}</div>
+        </div>
+        <button onClick={()=>{setRound(0);setScore({correct:0,total:0});startRound(difficulty);}}
+          style={{padding:'.9rem',background:`${difficulty.color}15`,border:`1.5px solid ${difficulty.color}`,color:difficulty.color,borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+          🔄 REJOUER
+        </button>
+        <button onClick={()=>setScreen('config')}
+          style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>
+          CHANGER DE DIFFICULTÉ
+        </button>
+      </div>
+    );
+  }
+
+  // Play screen
+  const currentNoteIdx = userInput.length;
+  const progressPct = (currentNoteIdx / melody.length) * 100;
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Header */}
+      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div>
+          <div style={{fontSize:9,fontFamily:'monospace',opacity:.4}}>MÉLODIE {round+1}/5</div>
+          <div style={{height:3,width:100,background:'rgba(255,255,255,0.08)',borderRadius:2,marginTop:3}}>
+            <div style={{height:'100%',width:`${progressPct}%`,background:difficulty.color,borderRadius:2,transition:'width 0.2s ease'}}/>
+          </div>
+        </div>
+        <Hearts total={difficulty.lives} remaining={lives}/>
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Status */}
+        <div style={{textAlign:'center',padding:'1rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':feedback==='wrong'?'rgba(241,148,138,0.1)':'rgba(255,255,255,0.03)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.4)':feedback==='wrong'?'rgba(241,148,138,0.4)':'rgba(255,255,255,0.08)'}`,borderRadius:12,transition:'all 0.2s'}}>
+          {feedback==='correct' && <div style={{fontSize:18,color:'#82E0AA',fontWeight:'bold',fontFamily:'Georgia,serif'}}>✓ Bonne note !</div>}
+          {feedback==='wrong'   && <div style={{fontSize:18,color:'#F1948A',fontWeight:'bold',fontFamily:'Georgia,serif'}}>✗ Mauvaise note</div>}
+          {!feedback && (
+            <div>
+              <div style={{fontSize:11,opacity:.4,fontFamily:'monospace',marginBottom:'.5rem'}}>NOTE {currentNoteIdx+1}/{melody.length} — JOUE LA MÉLODIE</div>
+              <div style={{fontSize:13,opacity:.55,fontFamily:'monospace'}}>{SEMI_TO_SOLFEGE[melody[currentNoteIdx]] || '?'}</div>
+            </div>
+          )}
+        </div>
+
+        {/* Note progress dots */}
+        <div style={{display:'flex',gap:6,justifyContent:'center'}}>
+          {melody.map((note,i)=>(
+            <div key={i} style={{width:12,height:12,borderRadius:'50%',
+              background:i<currentNoteIdx?difficulty.color:i===currentNoteIdx?`${difficulty.color}60`:'rgba(255,255,255,0.1)',
+              border:i===currentNoteIdx?`2px solid ${difficulty.color}`:'2px solid transparent',
+              transition:'all 0.2s'}}/>
+          ))}
+        </div>
+
+        {/* Controls */}
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={()=>playMelody(melody,tempoFactor)} style={{flex:1,padding:'.6rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em'}}>🔊 RÉÉCOUTER</button>
+          <button onClick={()=>playMelody(melody,0.5)} style={{flex:1,padding:'.6rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em'}}>🐢 LENT</button>
+        </div>
+
+        {/* Interactive piano */}
+        <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,padding:'.85rem',overflowX:'auto'}}>
+          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>TAPE LA NOTE CORRESPONDANTE</div>
+          <div style={{position:'relative',height:100}}>
+            {/* White keys */}
+            {whites.map(({absIdx,wi}) => {
+              const adjWi = wi - minWi;
+              const c = keyColor(absIdx);
+              return (
+                <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
+                  style={{position:'absolute',left:adjWi*34,top:0,width:32,height:95,
+                    background:c||'#f3ede0',border:'1.5px solid #555',borderRadius:'0 0 5px 5px',
+                    cursor:'pointer',transition:'background 0.1s',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:4}}
+                  onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#e0d8c8';}}
+                  onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#f3ede0';}}>
+                  {c && <span style={{fontSize:8,fontFamily:'monospace',color:'#000',fontWeight:'bold'}}>{SEMI_TO_SOLFEGE[absIdx]}</span>}
+                </div>
+              );
+            })}
+            {/* Black keys */}
+            {blacks.map(({absIdx,wi}) => {
+              const adjWi = wi - minWi;
+              const c = keyColor(absIdx);
+              return (
+                <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
+                  style={{position:'absolute',left:adjWi*34+22,top:0,width:22,height:60,zIndex:2,
+                    background:c||'#181614',border:'1px solid #000',borderRadius:'0 0 4px 4px',
+                    cursor:'pointer',transition:'background 0.1s'}}
+                  onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#333';}}
+                  onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#181614';}}>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Hint tip */}
+        <div style={{padding:'.65rem .9rem',background:'rgba(139,92,246,0.07)',border:'1px solid rgba(139,92,246,0.18)',borderRadius:10}}>
+          <p style={{fontSize:11,opacity:.55,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>
+            💡 Astuce : écoute la mélodie plusieurs fois avant de jouer. Chante-la mentalement d'abord.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── SECTION OREILLE ABSOLUE ───────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const OREILLE_ABSOLUE_PIECES = [
+  { id:1, title:'Gamme de Do',       desc:'La gamme fondamentale, 8 notes',         notes:[0,2,4,5,7,9,11,12], diff:1 },
+  { id:2, title:'Joyeux Anniversaire',desc:'Mélodie connue de tous',                notes:[0,0,2,0,5,4,0,0,2,0,7,5], diff:2 },
+  { id:3, title:'Au Clair de la Lune',desc:'Mélodie traditionnelle française',       notes:[0,0,0,2,4,2,0,4,2,2,0], diff:2 },
+  { id:4, title:'Ode à la Joie',     desc:'Beethoven — thème simple',               notes:[4,4,5,7,7,5,4,2,0,0,2,4,4,2,2], diff:3 },
+  { id:5, title:'Pentatonique',      desc:'5 notes, base de nombreuses mélodies',   notes:[0,2,4,7,9,7,4,2,0], diff:2 },
+  { id:6, title:'Mélodie mystère',   desc:'Une mélodie générée aléatoirement',      notes:[], diff:2, random:true },
+];
+
+const OREILLE_TIPS = [
+  "Commence par écouter la mélodie entière plusieurs fois sans jouer.",
+  "Identifie d'abord la première note — c'est souvent Do ou Sol.",
+  "Repère les intervalles : est-ce que la mélodie monte ou descend ?",
+  "Utilise la vitesse lente pour isoler les notes difficiles.",
+  "Chante la mélodie avant de la jouer — ton cerveau reconnaît mieux ce qu'il a chanté.",
+  "Les notes répétées sont plus faciles à trouver — commence par elles.",
+];
+
+function OreilleAbsolue({ onBack }) {
+  const [screen,    setScreen]    = useState('select');
+  const [piece,     setPiece]     = useState(null);
+  const [tempo,     setTempo]     = useState(1);   // 1=normal, 0.5=lent
+  const [notes,     setNotes]     = useState([]);  // resolved notes for the piece
+  const [played,    setPlayed]    = useState([]);
+  const [feedback,  setFeedback]  = useState(null);
+  const [lives,     setLives]     = useState(3);
+  const [tipIdx,    setTipIdx]    = useState(0);
+  const [showTipBox,setShowTipBox]= useState(false);
+
+  function loadPiece(p) {
+    const resolved = p.random ? generateMelody(7, PENTATONIC_SEMIS, 0, 12) : p.notes;
+    setNotes(resolved); setPiece(p); setPlayed([]); setLives(3); setFeedback(null);
+    setScreen('play');
+    setTimeout(() => playNotes(resolved, tempo), 700);
+  }
+
+  function playNotes(ns, factor=1) {
+    ns.forEach((semi, i) => setTimeout(() => playNote(semi, 0, 0.7), i*(480*factor)));
+  }
+
+  function handlePianoKey(semi) {
+    if (feedback) return;
+    const expected = notes[played.length];
+    if (expected === undefined) return;
+    playNote(semi, 0, 0.55);
+    const ok = semi === expected;
+    if (ok) {
+      const next = [...played, semi];
+      setPlayed(next);
+      setFeedback('correct');
+      setTimeout(() => {
+        setFeedback(null);
+        if (next.length >= notes.length) setScreen('done');
+      }, 250);
+    } else {
+      setLives(l => {
+        const nl = l-1;
+        if (nl<=0) setTimeout(()=>setScreen('fail'),600);
+        return nl;
+      });
+      setFeedback('wrong');
+      setTimeout(()=>setFeedback(null), 500);
+    }
+  }
+
+  const whites2 = PIANO_KEYS_DATA.filter(k=>k.type==='white' && k.absIdx<=14);
+  const blacks2 = PIANO_KEYS_DATA.filter(k=>k.type==='black' && k.absIdx<=14);
+
+  function keyColor2(ai) {
+    const curIdx = played.length;
+    if (played.includes(ai) && ai===played[played.length-1] && feedback==='correct') return '#82E0AA';
+    if (feedback==='wrong' && ai===notes[curIdx]) return '#F1948A';
+    return null;
+  }
+
+  // Select
+  if (screen==='select') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:'1.5rem'}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',margin:0}}>Oreille Absolue</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>ÉCOUTER ET REPRODUIRE AU PIANO</p>
+        </div>
+      </div>
+      <div style={{padding:'.9rem',background:'rgba(139,92,246,0.08)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:12,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.65,fontFamily:'Georgia,serif'}}>L'app joue une mélodie. Tu essaies de la reproduire note par note sur le piano. Choisis ta vitesse d'écoute.</p>
+      </div>
+      <div style={{marginBottom:'1rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>VITESSE D'ÉCOUTE</div>
+        <div style={{display:'flex',gap:8}}>
+          {[[1,'🎵 Normale'],[0.5,'🐢 Lente (×0.5)']].map(([v,label])=>(
+            <button key={v} onClick={()=>setTempo(v)} style={{flex:1,padding:'.55rem',background:tempo===v?'rgba(139,92,246,0.2)':'transparent',border:`1px solid ${tempo===v?'#A78BFA':'rgba(255,255,255,0.12)'}`,borderRadius:8,cursor:'pointer',color:tempo===v?'#A78BFA':'rgba(255,255,255,0.45)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s'}}>{label}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>CHOISIR UNE MÉLODIE</div>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {OREILLE_ABSOLUE_PIECES.map(p=>(
+          <button key={p.id} onClick={()=>loadPiece(p)}
+            style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,padding:'.9rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}
+            onMouseEnter={e=>{e.currentTarget.style.background='rgba(139,92,246,0.1)';e.currentTarget.style.borderColor='rgba(139,92,246,0.35)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.03)';e.currentTarget.style.borderColor='rgba(255,255,255,0.1)';}}>
+            <div>
+              <div style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',marginBottom:3}}>{p.title}</div>
+              <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{p.desc}</div>
+            </div>
+            <div style={{display:'flex',gap:2}}>
+              {[1,2,3].map(s=><div key={s} style={{width:8,height:8,borderRadius:'50%',background:s<=p.diff?'#A78BFA':'rgba(255,255,255,0.12)'}}/>)}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Done / Fail
+  if (screen==='done' || screen==='fail') return (
+    <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+      <div style={{textAlign:'center',padding:'2rem',background:screen==='done'?'rgba(130,224,170,0.08)':'rgba(241,148,138,0.08)',border:`1px solid ${screen==='done'?'rgba(130,224,170,0.3)':'rgba(241,148,138,0.3)'}`,borderRadius:14}}>
+        <div style={{fontSize:40,marginBottom:'1rem'}}>{screen==='done'?'🎉':'😔'}</div>
+        <div style={{fontSize:18,fontWeight:'bold',color:screen==='done'?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:8}}>
+          {screen==='done'?'Bravo ! Mélodie complète !':'Essaie encore !'}
+        </div>
+        <div style={{fontSize:12,opacity:.5,fontFamily:'monospace'}}>{piece?.title}</div>
+      </div>
+      <button onClick={()=>loadPiece(piece)} style={{padding:'.9rem',background:'rgba(139,92,246,0.15)',border:'1.5px solid #A78BFA',color:'#A78BFA',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>🔄 REJOUER</button>
+      <button onClick={()=>setScreen('select')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>CHOISIR UNE AUTRE MÉLODIE</button>
+    </div>
+  );
+
+  // Play
+  const curIdx = played.length;
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div style={{flex:1,marginRight:'1rem'}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+            <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{played.length}/{notes.length}</span>
+            <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{piece?.title}</span>
+          </div>
+          <div style={{height:3,background:'rgba(255,255,255,0.08)',borderRadius:2}}>
+            <div style={{height:'100%',width:`${(played.length/notes.length)*100}%`,background:'#A78BFA',borderRadius:2,transition:'width 0.2s'}}/>
+          </div>
+        </div>
+        <Hearts total={3} remaining={lives}/>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Feedback */}
+        <div style={{textAlign:'center',padding:'.85rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':feedback==='wrong'?'rgba(241,148,138,0.1)':'rgba(255,255,255,0.03)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.35)':feedback==='wrong'?'rgba(241,148,138,0.35)':'rgba(255,255,255,0.08)'}`,borderRadius:10,transition:'all 0.15s'}}>
+          {feedback==='correct'&&<span style={{color:'#82E0AA',fontSize:16}}>✓ Bonne note !</span>}
+          {feedback==='wrong'  &&<span style={{color:'#F1948A',fontSize:16}}>✗ Mauvaise note !</span>}
+          {!feedback           &&<span style={{fontSize:11,opacity:.45,fontFamily:'monospace'}}>NOTE {curIdx+1}/{notes.length}</span>}
+        </div>
+        {/* Controls */}
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={()=>playNotes(notes,1)}   style={{flex:1,padding:'.55rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>▶ Écouter</button>
+          <button onClick={()=>playNotes(notes,0.55)} style={{flex:1,padding:'.55rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:8,cursor:'pointer',color:'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>🐢 Lent</button>
+          <button onClick={()=>{setShowTipBox(v=>!v);setTipIdx(Math.floor(Math.random()*OREILLE_TIPS.length));}} style={{flex:1,padding:'.55rem',background:showTipBox?'rgba(139,92,246,0.15)':'rgba(255,255,255,0.05)',border:`1px solid ${showTipBox?'rgba(139,92,246,0.4)':'rgba(255,255,255,0.15)'}`,borderRadius:8,cursor:'pointer',color:showTipBox?'#A78BFA':'rgba(255,255,255,0.7)',fontSize:11,fontFamily:'monospace'}}>💡 Conseil</button>
+        </div>
+        {showTipBox && <div style={{padding:'.75rem',background:'rgba(139,92,246,0.09)',border:'1px solid rgba(139,92,246,0.25)',borderRadius:10,fontSize:12,color:'rgba(255,255,255,0.7)',fontFamily:'Georgia,serif',fontStyle:'italic',animation:'fadeIn 0.2s ease'}}>{OREILLE_TIPS[tipIdx]}</div>}
+        {/* Piano */}
+        <div style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,padding:'.85rem',overflowX:'auto'}}>
+          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>TAPE LA NOTE SUIVANTE</div>
+          <div style={{position:'relative',height:100}}>
+            {whites2.map(({absIdx,wi})=>{
+              const c=keyColor2(absIdx);
+              return <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
+                style={{position:'absolute',left:wi*34,top:0,width:32,height:95,background:c||'#f3ede0',border:'1.5px solid #555',borderRadius:'0 0 5px 5px',cursor:'pointer',transition:'background 0.1s',display:'flex',alignItems:'flex-end',justifyContent:'center',paddingBottom:4}}
+                onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#e0d8c8';}}
+                onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#f3ede0';}}>
+                {c&&<span style={{fontSize:8,fontFamily:'monospace',color:'#000',fontWeight:'bold'}}>{SEMI_TO_SOLFEGE[absIdx]}</span>}
+              </div>;
+            })}
+            {blacks2.map(({absIdx,wi})=>{
+              const c=keyColor2(absIdx);
+              return <div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
+                style={{position:'absolute',left:wi*34+22,top:0,width:22,height:60,zIndex:2,background:c||'#181614',border:'1px solid #000',borderRadius:'0 0 4px 4px',cursor:'pointer',transition:'background 0.1s'}}
+                onMouseEnter={e=>{if(!c)e.currentTarget.style.background='#333';}}
+                onMouseLeave={e=>{if(!c)e.currentTarget.style.background='#181614';}}>
+              </div>;
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── IMPROVISATION GUIDÉE (Technique) ─────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function ImprovisationGuidee() {
+  const [style,    setStyle]    = useState(null);
+  const [key,      setKey]      = useState('C');
+  const [result,   setResult]   = useState(null); // { scale, prog, scaleName }
+  const [playing,  setPlaying]  = useState(false);
+  const [screen,   setScreen]   = useState('style'); // style | play
+
+  function generate() {
+    const s = style || IMPRO_STYLES[Math.floor(Math.random()*IMPRO_STYLES.length)];
+    const k = ROOT_NOTES[Math.floor(Math.random()*ROOT_NOTES.length)];
+    const prog = generateImproProgression(s, k);
+    setKey(k); setStyle(s);
+    setResult({ scale: s.scale, prog, scaleName: s.label });
+    setScreen('play');
+  }
+
+  async function playProg(prog) {
+    if (playing) return;
+    setPlaying(true);
+    for (const chord of prog) {
+      const ri = CHROMATIC.indexOf(chord.r);
+      if (ri !== -1) playChordArp(CHORD_TYPES[chord.t].formula.map(f=>ri+f+4*12));
+      await new Promise(r=>setTimeout(r,1200));
+    }
+    setPlaying(false);
+  }
+
+  function playScale(scaleSemis, rootKey) {
+    const ri = CHROMATIC.indexOf(rootKey);
+    if (ri===-1) return;
+    scaleSemis.forEach((s,i) => setTimeout(()=>playNote(ri+s+4*12,0,0.7),i*300));
+  }
+
+  if (screen==='play' && result) {
+    const ri = CHROMATIC.indexOf(key);
+    const scaleNoteNames = result.scale.map(s => CHROMATIC[(ri+s)%12]);
+    return (
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+        {/* Header */}
+        <div style={{padding:'1.25rem',background:`${style?.color||'#8B5CF6'}12`,border:`1px solid ${style?.color||'#8B5CF6'}35`,borderRadius:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.5rem'}}>
+            <div style={{fontSize:18,fontWeight:'bold',color:style?.color||'#8B5CF6',fontFamily:'Georgia,serif'}}>{style?.label} — {key}</div>
+            <button onClick={generate} style={{padding:'.4rem .85rem',background:`${style?.color||'#8B5CF6'}20`,border:`1px solid ${style?.color||'#8B5CF6'}`,color:style?.color||'#8B5CF6',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em'}}>🎲 NOUVEAU</button>
+          </div>
+          <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>{style?.desc}</p>
+        </div>
+
+        {/* Scale */}
+        <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.75rem'}}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em'}}>GAMME À UTILISER</div>
+            <button onClick={()=>playScale(result.scale,key)} style={{padding:'3px 10px',background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:6,cursor:'pointer',color:'rgba(255,255,255,0.6)',fontSize:9,fontFamily:'monospace'}}>▶ ÉCOUTER</button>
+          </div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {scaleNoteNames.map((n,i)=>{
+              const nc=NOTE_COLORS[n]||'#C39BD3';
+              return <div key={i} style={{width:38,height:38,borderRadius:'50%',background:`${nc}20`,border:`1.5px solid ${nc}60`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:'bold',color:nc,fontFamily:'monospace'}}>{n}</div>;
+            })}
+          </div>
+        </div>
+
+        {/* Progression */}
+        <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.75rem'}}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em'}}>ENCHAÎNEMENT D'ACCORDS</div>
+            <button onClick={()=>playProg(result.prog)} disabled={playing} style={{padding:'3px 10px',background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.2)',borderRadius:6,cursor:playing?'default':'pointer',color:'rgba(255,255,255,0.6)',fontSize:9,fontFamily:'monospace'}}>
+              {playing?'▶…':'▶ ÉCOUTER'}
+            </button>
+          </div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            {result.prog.map((chord,ci)=>{
+              const nc=NOTE_COLORS[chord.r]||'#C39BD3';
+              return <div key={ci} style={{padding:'.55rem .8rem',background:`${nc}15`,border:`1.5px solid ${nc}50`,borderRadius:10,textAlign:'center'}}>
+                <div style={{fontSize:16,fontWeight:'bold',color:nc,fontFamily:'monospace',lineHeight:1}}>{chord.r}{CHORD_TYPES[chord.t]?.suffix}</div>
+              </div>;
+            })}
+          </div>
+        </div>
+
+        {/* Tips */}
+        <div style={{padding:'1rem',background:'rgba(247,220,111,0.06)',border:'1px solid rgba(247,220,111,0.18)',borderRadius:12}}>
+          <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>CONSEILS D'IMPROVISATION</div>
+          <ul style={{fontSize:12,opacity:.65,margin:0,paddingLeft:'1.25rem',lineHeight:1.8,fontFamily:'Georgia,serif'}}>
+            <li>Commence par jouer lentement les notes de la gamme de {key} sur cet enchaînement.</li>
+            <li>Cible les notes de l'accord en cours : elles sonnent toujours bien.</li>
+            <li>Utilise les silences — ils font partie de la musique.</li>
+            <li>Répète un petit motif de 2-3 notes et varie-le progressivement.</li>
+          </ul>
+        </div>
+
+        <button onClick={()=>setScreen('style')} style={{padding:'.75rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.08em'}}>← CHANGER DE STYLE</button>
+      </div>
+    );
+  }
+
+  // Style selection
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Improvisation Guidée</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>GAMME + PROGRESSION ALÉATOIRES</p>
+      </div>
+      <div style={{padding:'.9rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>Clique sur un style ou sur Aléatoire. L'app te donne une gamme et un enchaînement d'accords cohérent dans ce style. À toi d'improviser dessus sur ton vrai piano !</p>
+      </div>
+      {/* Random button */}
+      <button onClick={generate} style={{width:'100%',padding:'1rem',background:'linear-gradient(135deg,#8B5CF6,#F43F5E)',border:'none',borderRadius:14,cursor:'pointer',fontSize:14,fontFamily:'Georgia,serif',fontWeight:'bold',color:'#fff',marginBottom:'1.25rem',boxShadow:'0 6px 20px rgba(139,92,246,0.35)',letterSpacing:'.02em'}}>
+        🎲 GÉNÉRER DE FAÇON ALÉATOIRE
+      </button>
+      <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>OU CHOISIR UN STYLE</div>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {IMPRO_STYLES.map(s=>(
+          <button key={s.id} onClick={()=>{setStyle(s);generate();}}
+            style={{background:style?.id===s.id?`${s.color}15`:'rgba(255,255,255,0.03)',border:`1.5px solid ${style?.id===s.id?s.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${s.color}10`;e.currentTarget.style.borderColor=`${s.color}50`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=style?.id===s.id?`${s.color}15`:'rgba(255,255,255,0.03)';e.currentTarget.style.borderColor=style?.id===s.id?s.color:'rgba(255,255,255,0.1)';}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontSize:14,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif'}}>{s.label}</div>
+              <span style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{s.scale.length} notes →</span>
+            </div>
+            <div style={{fontSize:11,opacity:.5,fontFamily:'Georgia,serif',fontStyle:'italic',marginTop:3}}>{s.desc}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OreilPage(){
   const [sub,setSub]=useState(null);
-  if(sub==='intervalles')return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><IntervallesSection onBack={()=>setSub(null)}/></div>);
-  if(sub==='accords')return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><AccordOreilleSection onBack={()=>setSub(null)}/></div>);
-  const MODS=[{id:'intervalles',icon:'🎵',title:'Intervalles',subtitle:'IDENTIFIER LES DISTANCES',color:'#85C1E9',ok:true},{id:'accords',icon:'🎹',title:'Accords',subtitle:"IDENTIFIER À L'OREILLE",color:'#C39BD3',ok:true},{id:'melodie',icon:'🎼',title:'Mélodie',subtitle:'DICTÉE MÉLODIQUE',color:'#82E0AA',ok:false},{id:'rythme',icon:'🥁',title:'Rythme',subtitle:'DICTÉE RYTHMIQUE',color:'#F7DC6F',ok:false}];
+  if(sub==='intervalles') return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><IntervallesSection onBack={()=>setSub(null)}/></div>);
+  if(sub==='accords')     return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><AccordOreilleSection onBack={()=>setSub(null)}/></div>);
+  if(sub==='melodie')     return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><MelodieSection onBack={()=>setSub(null)}/></div>);
+  if(sub==='absolue')     return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><OreilleAbsolue onBack={()=>setSub(null)}/></div>);
+
+  const MODS=[
+    {id:'intervalles', icon:'🎵', title:'Intervalles',    subtitle:'IDENTIFIER LES DISTANCES',    color:'#85C1E9', ok:true},
+    {id:'accords',     icon:'🎹', title:'Accords',         subtitle:"IDENTIFIER À L'OREILLE",      color:'#C39BD3', ok:true},
+    {id:'melodie',     icon:'🎼', title:'Mélodie',         subtitle:'DICTÉE MÉLODIQUE',             color:'#82E0AA', ok:true},
+    {id:'absolue',     icon:'👁', title:'Oreille Absolue', subtitle:'ÉCOUTER ET REPRODUIRE',        color:'#A78BFA', ok:true},
+  ];
   return(<div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
     <div style={{marginBottom:'1.5rem'}}><h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Oreille Musicale</h2><p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>DÉVELOPPE TON OREILLE PAR L'ÉCOUTE ACTIVE</p></div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-      {MODS.map(m=>(<button key={m.id} onClick={()=>m.ok&&setSub(m.id)} style={{background:m.ok?`${m.color}08`:'rgba(240,235,224,0.02)',border:`0.5px solid ${m.ok?m.color+'40':'rgba(240,235,224,0.08)'}`,borderRadius:4,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:m.ok?'pointer':'default',textAlign:'left',opacity:m.ok?1:.5,transition:'all 0.2s'}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><span style={{fontSize:26}}>{m.icon}</span>{m.ok?<span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:2}}>DISPONIBLE</span>:<span style={{fontSize:8,fontFamily:'monospace',color:'rgba(240,235,224,0.25)',border:'0.5px solid rgba(240,235,224,0.1)',padding:'2px 5px',borderRadius:2}}>BIENTÔT</span>}</div>
-        <div><div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.ok?m.color:`${m.color}99`,fontFamily:'Georgia,serif'}}>{m.title}</div><div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div></div>
+      {MODS.map(m=>(<button key={m.id} onClick={()=>setSub(m.id)} style={{background:`${m.color}08`,border:`1px solid ${m.color}40`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+        onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+        onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}40`;e.currentTarget.style.transform='translateY(0)';}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><span style={{fontSize:26}}>{m.icon}</span><span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span></div>
+        <div><div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.color,fontFamily:'Georgia,serif'}}>{m.title}</div><div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div></div>
       </button>))}
     </div>
   </div>);
@@ -2320,30 +2979,30 @@ function ExercicesPage() {
   const [sub, setSub] = useState(null);
 
   const MODS = [
-    {id:'solfege',      icon:'🎼', title:'Solfège',              subtitle:'NOTES · GAMMES · LECTURE', color:'#F7DC6F', ok:true},
-    {id:'lecture',      icon:'📖', title:'Lecture de partition', subtitle:'IDENTIFIER LES NOTES',     color:'#85C1E9', ok:true},
-    {id:'flashcards',   icon:'⚡', title:'Speed Flashcards',     subtitle:'MÉMORISATION RÉFLEXE',      color:'#F1948A', ok:true},
-    {id:'cycle',        icon:'🔄', title:'Cycle des quintes',    subtitle:'12 TONALITÉS',              color:'#F7DC6F', ok:true},
-    {id:'transposition',icon:'↔', title:'Transposition',        subtitle:'CHANGER DE TONALITÉ',       color:'#85C1E9', ok:true},
-    {id:'rythme',       icon:'🥁', title:'Rythme',               subtitle:'DICTÉE RYTHMIQUE',         color:'#82E0AA', ok:false},
-    {id:'impro',   icon:'✨', title:'Improvisation',         subtitle:'SCALES & MODES',           color:'#F1948A', ok:false},
+    {id:'solfege',      icon:'🎼', title:'Solfège',              subtitle:'NOTES · GAMMES · SYMBOLES',   color:'#F7DC6F', ok:true},
+    {id:'lecture',      icon:'📖', title:'Lecture de partition', subtitle:'IDENTIFIER LES NOTES',         color:'#85C1E9', ok:true},
+    {id:'flashcards',   icon:'🎯', title:"Dictée d'accords",     subtitle:'JOUER LES ACCORDS AU PIANO',   color:'#F1948A', ok:true},
+    {id:'cycle',        icon:'🔄', title:'Cycle des quintes',    subtitle:'12 TONALITÉS',                 color:'#F7DC6F', ok:true},
+    {id:'transposition',icon:'↔', title:'Transposition',        subtitle:'CHANGER DE TONALITÉ',           color:'#85C1E9', ok:true},
+    {id:'impro',        icon:'✨', title:'Improvisation guidée', subtitle:'GAMME · STYLE · PROGRESSION',  color:'#A78BFA', ok:true},
   ];
 
   if (sub) {
     const info = MODS.find(m=>m.id===sub);
     return (
       <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.7)',flexShrink:0}}>
-          <button onClick={()=>setSub(null)} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:2}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)'}>← TECHNIQUE</button>
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',background:'rgba(13,11,30,0.8)',flexShrink:0}}>
+          <button onClick={()=>setSub(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:6,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}>← TECHNIQUE</button>
           <span style={{opacity:.2}}>|</span>
           <span style={{fontSize:11,fontFamily:'monospace',color:info?.color,letterSpacing:'.08em'}}>{info?.title.toUpperCase()}</span>
         </div>
         <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
           {sub==='solfege'      && <SolfegePage/>}
           {sub==='lecture'      && <LectureExercice/>}
-          {sub==='flashcards'   && <SpeedFlashcards/>}
+          {sub==='flashcards'   && <DicteeAccords/>}
           {sub==='cycle'        && <CycleQuintesExercice/>}
           {sub==='transposition'&& <TranspositionExercice/>}
+          {sub==='impro'        && <ImprovisationGuidee/>}
         </div>
       </div>
     );
@@ -2357,17 +3016,177 @@ function ExercicesPage() {
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
         {MODS.map(m=>(
-          <button key={m.id} onClick={()=>m.ok&&setSub(m.id)} style={{background:m.ok?`${m.color}08`:'rgba(240,235,224,0.02)',border:`0.5px solid ${m.ok?m.color+'40':'rgba(240,235,224,0.08)'}`,borderRadius:4,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:m.ok?'pointer':'default',textAlign:'left',opacity:m.ok?1:.5,transition:'all 0.2s'}}>
+          <button key={m.id} onClick={()=>setSub(m.id)}
+            style={{background:`${m.color}08`,border:`1px solid ${m.color}40`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}40`;e.currentTarget.style.transform='translateY(0)';}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <span style={{fontSize:26}}>{m.icon}</span>
-              {m.ok?<span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:2}}>DISPONIBLE</span>:<span style={{fontSize:8,fontFamily:'monospace',color:'rgba(240,235,224,0.25)',border:'0.5px solid rgba(240,235,224,0.1)',padding:'2px 5px',borderRadius:2}}>BIENTÔT</span>}
+              <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
             </div>
             <div>
-              <div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.ok?m.color:`${m.color}99`,fontFamily:'Georgia,serif'}}>{m.title}</div>
+              <div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.color,fontFamily:'Georgia,serif'}}>{m.title}</div>
               <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div>
             </div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Dictée d'accords ──────────────────────────────────────────────────────────
+function DicteeAccords() {
+  const [config,   setConfig]   = useState(null);
+  const [cards,    setCards]    = useState([]);
+  const [idx,      setIdx]      = useState(0);
+  const [stats,    setStats2]   = useState({ easy:0, hard:0, done:0 });
+  const [screen,   setScreen]   = useState('config');
+  const [selected, setSelected] = useState(new Set(['Majeures','Mineures']));
+  const [count,    setCount]    = useState(10);
+
+  const types = Object.entries(CHORD_TYPES).map(([t,{label,suffix}])=>({id:t,name:label,suffix,color:CHORD_COLORS[t]||'#C39BD3'}));
+
+  function buildCards(selectedTypes, n) {
+    const pool = [];
+    selectedTypes.forEach(t => {
+      ROOT_NOTES.forEach(r => pool.push({root:r, type:t, name:r+CHORD_TYPES[t].suffix, label:CHORD_TYPES[t].label}));
+    });
+    // Shuffle
+    for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+    return pool.slice(0,n);
+  }
+
+  function start() {
+    if(selected.size===0)return;
+    const c = buildCards(Array.from(selected), count);
+    setCards(c); setIdx(0); setStats2({easy:0,hard:0,done:0}); setConfig({selected,count}); setScreen('play');
+  }
+
+  function markCard(ease) {
+    setStats2(s=>({...s,[ease]:s[ease]+1,done:s.done+1}));
+    // Play the chord
+    const card = cards[idx];
+    const ri = CHROMATIC.indexOf(card.root);
+    if(ri!==-1) playChordArp(CHORD_TYPES[card.type].formula.map(f=>ri+f+4*12));
+    if(idx>=cards.length-1) { setScreen('result'); return; }
+    setIdx(i=>i+1);
+  }
+
+  if(screen==='config') return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Dictée d'accords</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>JOUE CES ACCORDS SUR TON VRAI PIANO</p>
+      </div>
+      <div style={{padding:'.9rem',background:'rgba(241,148,138,0.07)',border:'1px solid rgba(241,148,138,0.2)',borderRadius:12,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.65,fontFamily:'Georgia,serif'}}>Un accord s'affiche. Tu le joues sur ton piano physique, tu entends la référence dans l'app, puis tu passes à la suivante. Indique si c'était facile ou difficile pour suivre ta progression.</p>
+      </div>
+      {/* Type selection */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>TYPES D'ACCORDS À TRAVAILLER</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:6}}>
+          {types.map(t=>{
+            const on=selected.has(t.id);
+            return(<button key={t.id} onClick={()=>setSelected(prev=>{const n=new Set(prev);if(n.has(t.id)){if(n.size>1)n.delete(t.id);}else n.add(t.id);return n;})}
+              style={{background:on?`${t.color}18`:'rgba(255,255,255,0.03)',border:`1.5px solid ${on?t.color:'rgba(255,255,255,0.1)'}`,borderRadius:10,padding:'.65rem .75rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8}}>
+              <div style={{width:14,height:14,borderRadius:3,background:on?t.color:'rgba(255,255,255,0.1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                {on&&<span style={{fontSize:9,color:'#0D0B1E',fontWeight:'bold'}}>✓</span>}
+              </div>
+              <div><div style={{fontSize:12,fontWeight:'bold',color:on?t.color:'rgba(255,255,255,0.6)',fontFamily:'monospace'}}>{t.name}</div><div style={{fontSize:9,opacity:.4,fontFamily:'monospace'}}>ex. C{t.suffix}</div></div>
+            </button>);
+          })}
+        </div>
+      </div>
+      {/* Count */}
+      <div style={{marginBottom:'1.5rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>NOMBRE DE CARTES</div>
+        <div style={{display:'flex',gap:8}}>
+          {[5,10,20].map(n=>(
+            <button key={n} onClick={()=>setCount(n)} style={{flex:1,padding:'.65rem',background:count===n?'rgba(241,148,138,0.15)':'rgba(255,255,255,0.03)',border:`1.5px solid ${count===n?'#F1948A':'rgba(255,255,255,0.1)'}`,color:count===n?'#F1948A':'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontFamily:'monospace',fontSize:14,fontWeight:'bold',transition:'all 0.2s'}}>{n}</button>
+          ))}
+        </div>
+      </div>
+      <button onClick={start} style={{width:'100%',padding:'1rem',background:'rgba(241,148,138,0.15)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+        COMMENCER →
+      </button>
+    </div>
+  );
+
+  if(screen==='result') {
+    const pct = Math.round((stats.easy/(stats.done||1))*100);
+    const mc  = pct>=70?'#82E0AA':pct>=40?'#F7DC6F':'#F1948A';
+    return(
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>SESSION TERMINÉE</div>
+          <div style={{display:'flex',gap:16,justifyContent:'center',marginBottom:'1rem'}}>
+            <div style={{textAlign:'center'}}><div style={{fontSize:36,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif'}}>{stats.easy}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>FACILE</div></div>
+            <div style={{textAlign:'center'}}><div style={{fontSize:36,fontWeight:'bold',color:'#F1948A',fontFamily:'Georgia,serif'}}>{stats.hard}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>DIFFICILE</div></div>
+          </div>
+          <div style={{fontSize:14,opacity:.55,fontFamily:'Georgia,serif'}}>{pct>=70?'Excellente maîtrise !':pct>=40?'Continue à pratiquer ces accords':'Reviens demain — la régularité paie !'}</div>
+        </div>
+        <button onClick={start} style={{padding:'.9rem',background:'rgba(241,148,138,0.15)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>🔄 NOUVELLE SESSION</button>
+        <button onClick={()=>setScreen('config')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>⚙ RECONFIGURER</button>
+      </div>
+    );
+  }
+
+  // Play
+  const card = cards[idx];
+  if(!card) return null;
+  const nc = NOTE_COLORS[card.root]||'#F1948A';
+  // Piano colors for reference chord
+  const ri2 = CHROMATIC.indexOf(card.root);
+  const pianoC = {};
+  if(ri2!==-1) CHORD_TYPES[card.type].formula.forEach(f=>{ const k=(ri2+f)%12; pianoC[k]=nc; pianoC[k+12]=nc; });
+
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Progress */}
+      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+          <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{idx+1}/{cards.length}</span>
+          <span style={{fontSize:10,fontFamily:'monospace',color:'#82E0AA'}}>{stats.easy} facile · <span style={{color:'#F1948A'}}>{stats.hard} difficile</span></span>
+        </div>
+        <div style={{height:3,background:'rgba(255,255,255,0.08)',borderRadius:2}}>
+          <div style={{height:'100%',width:`${(idx/cards.length)*100}%`,background:'#F1948A',borderRadius:2,transition:'width 0.3s ease'}}/>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Card */}
+        <div style={{textAlign:'center',padding:'2rem',background:`${nc}10`,border:`1.5px solid ${nc}40`,borderRadius:16}}>
+          <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'1rem'}}>JOUE CET ACCORD SUR TON PIANO</div>
+          <div style={{fontSize:60,fontWeight:'bold',color:nc,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:6}}>{card.name}</div>
+          <div style={{fontSize:14,opacity:.55,fontFamily:'monospace',marginBottom:'1.25rem'}}>{card.label}</div>
+          <button onClick={()=>{ if(ri2!==-1) playChordArp(CHORD_TYPES[card.type].formula.map(f=>ri2+f+4*12)); }}
+            style={{background:`${nc}18`,border:`1px solid ${nc}60`,color:nc,padding:'.45rem 1.1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em'}}>
+            🔊 ÉCOUTER LA RÉFÉRENCE
+          </button>
+        </div>
+        {/* Piano reference */}
+        <div style={{padding:'.75rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,overflowX:'auto'}}>
+          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',marginBottom:'.65rem',letterSpacing:'.1em'}}>TOUCHES À ENFONCER</div>
+          <PianoKeyboard colors={pianoC}/>
+        </div>
+        {/* Notes */}
+        <div style={{display:'flex',gap:6,justifyContent:'center'}}>
+          {CHORD_TYPES[card.type].formula.map(f=>{
+            const n=CHROMATIC[(ri2+f)%12]; const c=NOTE_COLORS[n]||nc;
+            return <div key={f} style={{width:42,height:42,borderRadius:'50%',background:`${c}20`,border:`1.5px solid ${c}60`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:'bold',color:c,fontFamily:'monospace'}}>{n}</div>;
+          })}
+        </div>
+        {/* Actions */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginTop:'auto'}}>
+          <button onClick={()=>markCard('hard')}
+            style={{padding:'1rem',background:'rgba(241,148,138,0.12)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',transition:'all 0.2s'}}>
+            😓 DIFFICILE
+          </button>
+          <button onClick={()=>markCard('easy')}
+            style={{padding:'1rem',background:'rgba(130,224,170,0.12)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',transition:'all 0.2s'}}>
+            ✓ FACILE
+          </button>
+        </div>
       </div>
     </div>
   );
