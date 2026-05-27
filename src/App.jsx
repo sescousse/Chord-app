@@ -74,6 +74,53 @@ function loadGoals() {
 }
 function saveGoals(g) { try { localStorage.setItem(GOAL_KEY, JSON.stringify(g)); } catch {} }
 
+// ── Thèmes visuels ────────────────────────────────────────────────────────────
+const THEMES = {
+  classique: {
+    id: 'classique', label: 'Classique', icon: '🌙',
+    bg: '#0f0e0c',
+    headerBg: 'rgba(15,14,12,0.9)',
+    navBg: 'rgba(15,14,12,0.92)',
+    surface: 'rgba(240,235,224,0.025)',
+    surfaceHover: 'rgba(240,235,224,0.05)',
+    border: 'rgba(240,235,224,0.1)',
+    borderMuted: 'rgba(240,235,224,0.08)',
+    text: '#f0ebe0',
+    textMuted: 'rgba(240,235,224,0.4)',
+    textFaint: 'rgba(240,235,224,0.2)',
+    css: `body{background:#0f0e0c;color:#f0ebe0;}`,
+  },
+  jazz: {
+    id: 'jazz', label: 'Jazz Club', icon: '🎷',
+    bg: 'linear-gradient(160deg, #1c0e04 0%, #0a0d1a 60%, #1a0c10 100%)',
+    headerBg: 'rgba(28,14,4,0.95)',
+    navBg: 'rgba(28,14,4,0.97)',
+    surface: 'rgba(255,180,80,0.05)',
+    surfaceHover: 'rgba(255,180,80,0.1)',
+    border: 'rgba(255,180,80,0.15)',
+    borderMuted: 'rgba(255,180,80,0.08)',
+    text: '#faecd8',
+    textMuted: 'rgba(250,236,216,0.45)',
+    textFaint: 'rgba(250,236,216,0.22)',
+    css: `body{background:#1c0e04;color:#faecd8;}`,
+  },
+  nature: {
+    id: 'nature', label: 'Nature', icon: '🌿',
+    bg: 'linear-gradient(160deg, #051a0f 0%, #0a1a05 50%, #0f1a0a 100%)',
+    headerBg: 'rgba(5,26,15,0.95)',
+    navBg: 'rgba(5,26,15,0.97)',
+    surface: 'rgba(100,220,130,0.05)',
+    surfaceHover: 'rgba(100,220,130,0.1)',
+    border: 'rgba(100,220,130,0.15)',
+    borderMuted: 'rgba(100,220,130,0.08)',
+    text: '#e8f5ec',
+    textMuted: 'rgba(232,245,236,0.45)',
+    textFaint: 'rgba(232,245,236,0.22)',
+    css: `body{background:#051a0f;color:#e8f5ec;}`,
+  },
+};
+const THEME_IDS = Object.keys(THEMES);
+
 // ── Piano data ────────────────────────────────────────────────────────────────
 const PIANO_KEYS_DATA = [
   {absIdx:0,type:'white',wi:0,note:'C'},{absIdx:1,type:'black',wi:0,note:'C#'},
@@ -1251,7 +1298,7 @@ function CycleQuintesExercice() {
       ];}},
   ];
 
-  const [screen, setScreen]       = useState('config'); // config | exercise | results
+  const [screen, setScreen]       = useState('tutorial'); // tutorial | config | exercise | results
   const [progType, setProgType]   = useState(PROG_TYPES[0]);
   const [keyOrder, setKeyOrder]   = useState([...CIRCLE_KEYS]);
   const [keyIdx, setKeyIdx]       = useState(0);
@@ -1303,6 +1350,42 @@ function CycleQuintesExercice() {
     setAnswered(false); setUserChords([]);
     setTimeout(()=>playProgressionInKey(keyOrder[keyIdx+1]), 400);
   }
+
+  if (screen==='tutorial') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem',letterSpacing:'-.01em'}}>Cycle des quintes</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>TUTORIEL — LIS AVANT DE COMMENCER</p>
+      </div>
+      <div style={{marginBottom:'1.25rem',textAlign:'center'}}>
+        <CircleOfFifthsSVG doneKeys={['C','G','D']} currentKey="A" color="#F7DC6F"/>
+        <p style={{fontSize:10,opacity:.4,fontFamily:'monospace',marginTop:'.5rem'}}>Exemple : 3 tonalités complétées, "La" en cours</p>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:'1.5rem'}}>
+        {[
+          {num:'①',title:"Qu'est-ce que le cycle des quintes ?",color:'#F7DC6F',
+            text:"Un cercle reliant les 12 tonalités. Chaque étape monte d'une quinte (7 demi-tons). C'est l'outil fondamental pour naviguer entre tonalités en jazz et en classique."},
+          {num:'②',title:"Comment fonctionne l'exercice ?",color:'#85C1E9',
+            text:"L'app joue une progression dans une tonalité. Tu dois identifier chaque accord : d'abord la note racine, puis le type. Tu fais le tour des 12 tonalités une par une."},
+          {num:'③',title:"Astuce pour réussir",color:'#82E0AA',
+            text:"Écoute avant de répondre — le bouton RÉÉCOUTER est là pour ça. Ne te soucie pas de la vitesse, la précision prime. Commence par la progression I-IV-V, la plus simple."},
+          {num:'④',title:"Pourquoi c'est essentiel ?",color:'#C39BD3',
+            text:"Maîtriser ses progressions dans toutes les tonalités permet de jouer avec n'importe qui. C'est l'exercice quotidien des musiciens de jazz professionnels."},
+        ].map(s=>(<div key={s.num} style={{padding:'1rem',background:`${s.color}08`,border:`0.5px solid ${s.color}30`,borderRadius:4}}>
+          <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
+            <span style={{fontSize:18,flexShrink:0}}>{s.num}</span>
+            <div>
+              <div style={{fontSize:13,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif',marginBottom:'.4rem'}}>{s.title}</div>
+              <p style={{fontSize:12,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{s.text}</p>
+            </div>
+          </div>
+        </div>))}
+      </div>
+      <button onClick={()=>setScreen('config')} style={{width:'100%',padding:'1rem',background:'rgba(247,220,111,0.15)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold'}}>
+        J'AI COMPRIS — CONFIGURER L'EXERCICE →
+      </button>
+    </div>
+  );
 
   if (screen==='config') return (
     <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
@@ -1608,6 +1691,121 @@ function TranspositionExercice() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ── Voice Leading ─────────────────────────────────────────────────────────────
+// Algorithm: for each chord pair, find the inversion of chord B
+// that minimizes the total semitone movement from chord A's notes.
+function calcVoiceLeading(notesA, notesB) {
+  // Returns { inversion: number[], totalMovement: number }
+  const n = Math.min(notesA.length, notesB.length);
+  const inversions = notesB.map((_, i) => [...notesB.slice(i), ...notesB.slice(0, i)]);
+
+  let best = null, bestScore = Infinity;
+  inversions.forEach((inv, idx) => {
+    let score = 0;
+    for (let v = 0; v < n; v++) {
+      const diff = Math.abs(notesA[v] - inv[v]);
+      score += Math.min(diff, 12 - diff);
+    }
+    if (score < bestScore) { bestScore = score; best = { inversion: inv, idx, movement: score }; }
+  });
+  return best || { inversion: notesB, idx: 0, movement: 0 };
+}
+
+function getChordSemis(root, type, octave = 4) {
+  const ri = CHROMATIC.indexOf(root);
+  if (ri === -1 || !CHORD_TYPES[type]) return [];
+  return CHORD_TYPES[type].formula.map(i => ri + i + octave * 12);
+}
+
+function VoiceLeadingPanel({ progression, color }) {
+  const [expanded, setExpanded] = useState(false);
+  const [activeStep, setActiveStep] = useState(null);
+
+  const chords = progression.chords;
+  if (chords.length < 2) return null;
+
+  // Compute voice leading for each consecutive pair
+  const transitions = chords.map((chord, i) => {
+    if (i === 0) return null;
+    const prev = chords[i - 1];
+    const notesA = getChordSemis(prev.r, prev.t);
+    const notesB = getChordSemis(chord.r, chord.t);
+    const vl = calcVoiceLeading(notesA, notesB);
+    return {
+      from: prev, to: chord,
+      fromNotes: notesA,
+      inversionNotes: vl.inversion,
+      inversionIdx: vl.idx,
+      movement: vl.movement,
+    };
+  }).filter(Boolean);
+
+  const activeTransition = activeStep !== null ? transitions[activeStep] : null;
+  // Build piano colors for the active transition
+  const pianoColors = {};
+  if (activeTransition) {
+    activeTransition.fromNotes.forEach(n => { const k = n % 24; pianoColors[k] = '#85C1E9'; }); // blue = departing
+    activeTransition.inversionNotes.forEach(n => { const k = n % 24; pianoColors[k] = color; }); // color = arriving
+  }
+
+  return (
+    <div style={{ padding: '1rem', background: 'rgba(240,235,224,0.02)', border: `0.5px solid ${color}30`, borderRadius: 4 }}>
+      {/* Header toggle */}
+      <button onClick={() => setExpanded(v => !v)}
+        style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 0 }}>
+        <div style={{ fontSize: 10, color, fontFamily: 'monospace', letterSpacing: '.1em' }}>🎼 VOICE LEADING — RENVERSEMENTS CONSEILLÉS</div>
+        <span style={{ fontSize: 12, color, opacity: .7 }}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {expanded && (
+        <div style={{ marginTop: '1rem', animation: 'fadeIn 0.3s ease' }}>
+          <p style={{ fontSize: 11, opacity: .5, fontFamily: 'Georgia,serif', lineHeight: 1.6, margin: '0 0 1rem' }}>
+            Pour chaque enchaînement, voici le renversement qui minimise le déplacement des voix. Clique sur une transition pour voir les touches sur le clavier.
+          </p>
+
+          {/* Transition list */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: '1rem' }}>
+            {transitions.map((t, i) => {
+              const isActive = activeStep === i;
+              const invName = INVERSION_NAMES[t.inversionIdx] || 'Fondamentale';
+              const nc = NOTE_COLORS[t.to.r] || color;
+              return (
+                <button key={i} onClick={() => setActiveStep(isActive ? null : i)}
+                  style={{ background: isActive ? `${nc}15` : 'rgba(240,235,224,0.03)', border: `0.5px solid ${isActive ? nc : 'rgba(240,235,224,0.1)'}`, borderRadius: 3, padding: '.75rem .9rem', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, fontFamily: 'monospace', color: NOTE_COLORS[t.from.r] || '#85C1E9' }}>{t.from.r}{CHORD_TYPES[t.from.t]?.suffix}</span>
+                      <span style={{ fontSize: 11, opacity: .3 }}>→</span>
+                      <span style={{ fontSize: 13, fontFamily: 'monospace', color: nc }}>{t.to.r}{CHORD_TYPES[t.to.t]?.suffix}</span>
+                    </div>
+                    <span style={{ fontSize: 9, fontFamily: 'monospace', color: isActive ? nc : 'rgba(240,235,224,0.4)', padding: '2px 6px', border: `0.5px solid ${isActive ? nc : 'rgba(240,235,224,0.15)'}`, borderRadius: 2 }}>
+                      {t.movement === 0 ? 'IDENTIQUE' : `Δ ${t.movement} ½t`}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 10, opacity: .5, fontFamily: 'monospace' }}>
+                    Jouer en <span style={{ color: nc }}>{invName}</span> — Notes : {t.inversionNotes.map(n => CHROMATIC[n % 12]).join(' – ')}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Piano visualization */}
+          {activeStep !== null && (
+            <div style={{ background: 'rgba(240,235,224,0.02)', border: '0.5px solid rgba(240,235,224,0.07)', borderRadius: 4, padding: '1rem', overflowX: 'auto', animation: 'fadeIn 0.2s ease' }}>
+              <div style={{ fontSize: 9, opacity: .3, fontFamily: 'monospace', marginBottom: '.65rem', textAlign: 'center' }}>
+                <span style={{ color: '#85C1E9' }}>■</span> Note de départ &nbsp;
+                <span style={{ color }}>■</span> Note d'arrivée (renversement conseillé)
+              </div>
+              <PianoKeyboard colors={pianoColors} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2359,6 +2557,262 @@ function AccordsLibrary(){
 // ── APPRENTISSAGE — landing + sous-sections ───────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 // ── Page Théorie ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// ── COIN DE L'HARMONIE ────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Module 1 : Construction d'accords pas à pas
+function ConstructionAccords() {
+  const STEPS = [
+    { label:'Fondamentale (1)', semi:0,  desc:'La note racine — le centre de gravité de l\'accord.' },
+    { label:'Tierce (3)',       semi:4,  descM:'La tierce majeure (+4) → accord majeur = lumineux, positif.',
+                                         descm:'La tierce mineure (+3) → accord mineur = sombre, introspectif.', hasMajMin:true },
+    { label:'Quinte (5)',       semi:7,  desc:'La quinte juste (+7) → stabilise l\'accord, neutre harmoniquement.' },
+    { label:'Septième (7)',     semi:11, descM:'La 7e majeure (+11) → couleur jazz, rêveuse.',
+                                         descm:'La 7e mineure (+10) → dominante 7, tension forte.', hasMajMin:true },
+  ];
+  const [root, setRoot]           = useState('C');
+  const [step, setStep]           = useState(0);
+  const [majMin, setMajMin]       = useState('maj'); // 'maj' | 'min'
+  const [builtNotes, setBuiltNotes] = useState([0]);
+
+  const ri = CHROMATIC.indexOf(root);
+  const color = NOTE_COLORS[root] || '#C39BD3';
+
+  // Current note being added
+  const currentStep = STEPS[step];
+  const currentSemi = currentStep.hasMajMin
+    ? (majMin==='maj' ? (step===1?4:11) : (step===1?3:10))
+    : currentStep.semi;
+
+  const allNotes = builtNotes.map(s => ({ semi: s, name: CHROMATIC[(ri + s) % 12] }));
+
+  function addNote() {
+    setBuiltNotes(prev => [...prev, currentSemi]);
+    // Play the chord so far + new note
+    const notes = [...builtNotes, currentSemi].map(s => ri + s + 4*12);
+    setTimeout(() => playChordArp(notes), 50);
+    if (step < STEPS.length - 1) setStep(s => s + 1);
+  }
+
+  function reset() { setBuiltNotes([0]); setStep(0); setMajMin('maj'); }
+
+  const pianoColors = {};
+  builtNotes.forEach(s => { const k=(ri+s)%12; pianoColors[k]=color; pianoColors[k+12]=color; });
+
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.25rem'}}>
+        <h3 style={{fontSize:16,fontWeight:'bold',marginBottom:'.35rem'}}>Construction d'accords</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>CONSTRUIS UN ACCORD NOTE PAR NOTE</p>
+      </div>
+
+      {/* Root selection */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.6rem'}}>NOTE RACINE</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:5}}>
+          {ROOT_NOTES.map(r=>{
+            const nc=NOTE_COLORS[r]||'#C39BD3',sel=root===r;
+            return <button key={r} onClick={()=>{setRoot(r);reset();}} style={{background:sel?`${nc}25`:`${nc}10`,border:`0.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.5rem .1rem',borderRadius:2,cursor:'pointer',fontSize:13,fontWeight:sel?'bold':'normal',fontFamily:'monospace',transition:'all 0.15s'}}>{r}</button>;
+          })}
+        </div>
+      </div>
+
+      {/* Notes built so far */}
+      <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:'1.25rem',flexWrap:'wrap'}}>
+        {allNotes.map((n,i)=>(
+          <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+            <div style={{width:48,height:48,borderRadius:'50%',background:`${color}20`,border:`1.5px solid ${color}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:'bold',color,fontFamily:'monospace'}}>{n.name}</div>
+            <div style={{fontSize:9,opacity:.45,fontFamily:'monospace'}}>{STEPS[i]?.label?.split(' ')[0]||'—'}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Current step explanation */}
+      {step < STEPS.length && (
+        <div style={{padding:'1rem',background:`${color}08`,border:`0.5px solid ${color}30`,borderRadius:4,marginBottom:'1rem',animation:'fadeIn 0.3s ease'}}>
+          <div style={{fontSize:12,fontWeight:'bold',color,fontFamily:'Georgia,serif',marginBottom:'.5rem'}}>{STEPS[step].label}</div>
+          {STEPS[step].hasMajMin ? (
+            <div>
+              <div style={{display:'flex',gap:6,marginBottom:'.65rem'}}>
+                {['maj','min'].map(m=>(
+                  <button key={m} onClick={()=>setMajMin(m)} style={{flex:1,padding:'.45rem',background:majMin===m?`${color}20`:'transparent',border:`0.5px solid ${majMin===m?color:'rgba(240,235,224,0.15)'}`,color:majMin===m?color:'rgba(240,235,224,0.45)',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
+                    {m==='maj'?'MAJEURE ↑':'MINEURE ↓'}
+                  </button>
+                ))}
+              </div>
+              <p style={{fontSize:12,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>
+                {majMin==='maj'?STEPS[step].descM:STEPS[step].descm}
+              </p>
+            </div>
+          ) : (
+            <p style={{fontSize:12,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{STEPS[step].desc}</p>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div style={{display:'flex',gap:8,marginBottom:'1.25rem'}}>
+        {step < STEPS.length ? (
+          <button onClick={addNote} style={{flex:1,padding:'.85rem',background:`${color}15`,border:`1px solid ${color}`,color,borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',transition:'all 0.2s'}}>
+            + AJOUTER {STEPS[step].label.split(' ')[0].toUpperCase()}
+          </button>
+        ) : (
+          <div style={{flex:1,padding:'.85rem',background:`${color}08`,border:`0.5px solid ${color}40`,borderRadius:3,textAlign:'center',fontSize:12,fontFamily:'monospace',color,letterSpacing:'.1em'}}>
+            ✓ ACCORD COMPLET
+          </div>
+        )}
+        <button onClick={reset} style={{padding:'.85rem 1rem',background:'transparent',border:'0.5px solid rgba(240,235,224,0.2)',color:'rgba(240,235,224,0.45)',borderRadius:3,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>↩ RESET</button>
+      </div>
+
+      {/* Piano */}
+      <div style={{overflowX:'auto',padding:'.75rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:4}}>
+        <div style={{fontSize:9,opacity:.3,fontFamily:'monospace',marginBottom:'.65rem',textAlign:'center'}}>CLAVIER</div>
+        <PianoKeyboard colors={pianoColors}/>
+      </div>
+    </div>
+  );
+}
+
+// Module 2 : Tension & Résolution
+function TensionResolution() {
+  const PAIRS = [
+    { tension:{r:'G',t:'Dom. 7',label:'G7 — Dominante de Do'},
+      resolution:{r:'C',t:'Majeures',label:'C — Tonique'},
+      explain:"Le G7 crée une tension forte grâce à sa titon interne (Si–Fa). Il appelle naturellement à se résoudre sur Do majeur." },
+    { tension:{r:'D',t:'Dom. 7',label:'D7 — Dominante de Sol'},
+      resolution:{r:'G',t:'Majeures',label:'G — Tonique'},
+      explain:"La même relation V7→I, transposée en Sol. La sensible (Fa#) monte vers Sol, la 7e (Do) descend vers Si." },
+    { tension:{r:'B',t:'Dom. 7',label:'B7 — Dominante de Mi'},
+      resolution:{r:'E',t:'Mineures',label:'Em — Tonique mineure'},
+      explain:"Un V7 peut aussi résoudre sur un accord mineur — on appelle ça une résolution sur mode mineur (cadence phrygienne)." },
+    { tension:{r:'F',t:'Dom. 7',label:'F7 — Substitution triton'},
+      resolution:{r:'C',t:'Majeures',label:'C — Tonique'},
+      explain:"Le triton de B7 est F7. Les deux partagent les mêmes notes de tension (La–Mib enharmoniquement). C'est la substitution triton du jazz." },
+  ];
+
+  const [pairIdx, setPairIdx]     = useState(0);
+  const [phase, setPhase]         = useState('tension'); // tension | resolution
+  const [heard, setHeard]         = useState(false);
+
+  const pair = PAIRS[pairIdx];
+  const chordInfo = (r, t) => {
+    const ri = CHROMATIC.indexOf(r);
+    return ri === -1 ? [] : CHORD_TYPES[t]?.formula.map(i => ri + i + 4*12) || [];
+  };
+
+  function playTension() {
+    playChordArp(chordInfo(pair.tension.r, pair.tension.t));
+    setPhase('tension'); setHeard(true);
+  }
+  function playResolution() {
+    playChordArp(chordInfo(pair.resolution.r, pair.resolution.t));
+    setPhase('resolution');
+  }
+  function playBoth() {
+    playChordArp(chordInfo(pair.tension.r, pair.tension.t));
+    setTimeout(()=>playChordArp(chordInfo(pair.resolution.r, pair.resolution.t)), 1400);
+    setPhase('resolution'); setHeard(true);
+  }
+
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.25rem'}}>
+        <h3 style={{fontSize:16,fontWeight:'bold',marginBottom:'.35rem'}}>Tension & Résolution</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>COMPRENDRE POURQUOI UN ACCORD APPELLE UN AUTRE</p>
+      </div>
+
+      {/* Pair selector */}
+      <div style={{display:'flex',gap:6,marginBottom:'1.25rem',overflowX:'auto'}}>
+        {PAIRS.map((p,i)=>(
+          <button key={i} onClick={()=>{setPairIdx(i);setPhase('tension');setHeard(false);}} style={{padding:'.4rem .75rem',background:pairIdx===i?'rgba(241,148,138,0.15)':'rgba(240,235,224,0.03)',border:`0.5px solid ${pairIdx===i?'#F1948A':'rgba(240,235,224,0.12)'}`,color:pairIdx===i?'#F1948A':'rgba(240,235,224,0.45)',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',transition:'all 0.2s'}}>{i+1}. {p.tension.r}7→{p.resolution.r}</button>
+        ))}
+      </div>
+
+      {/* Tension chord */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr auto 1fr',gap:8,alignItems:'center',marginBottom:'1.25rem'}}>
+        <button onClick={playTension} style={{padding:'1.25rem',background:phase==='tension'?'rgba(241,148,138,0.15)':'rgba(241,148,138,0.05)',border:`1px solid ${phase==='tension'?'#F1948A':'rgba(241,148,138,0.25)'}`,borderRadius:4,cursor:'pointer',transition:'all 0.3s',textAlign:'center'}}>
+          <div style={{fontSize:9,color:'#F1948A',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:6}}>TENSION</div>
+          <div style={{fontSize:22,fontWeight:'bold',color:'#F1948A',fontFamily:'Georgia,serif',lineHeight:1}}>{pair.tension.r}{CHORD_TYPES[pair.tension.t]?.suffix}</div>
+          <div style={{fontSize:9,opacity:.5,fontFamily:'monospace',marginTop:4}}>🔊 ÉCOUTER</div>
+        </button>
+        <button onClick={playBoth} style={{padding:'.5rem',background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.15)',borderRadius:'50%',cursor:'pointer',width:44,height:44,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0,transition:'all 0.2s'}} title="Jouer les deux">▶▶</button>
+        <button onClick={playResolution} style={{padding:'1.25rem',background:phase==='resolution'?'rgba(130,224,170,0.15)':'rgba(130,224,170,0.05)',border:`1px solid ${phase==='resolution'?'#82E0AA':'rgba(130,224,170,0.25)'}`,borderRadius:4,cursor:'pointer',transition:'all 0.3s',textAlign:'center'}}>
+          <div style={{fontSize:9,color:'#82E0AA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:6}}>RÉSOLUTION</div>
+          <div style={{fontSize:22,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif',lineHeight:1}}>{pair.resolution.r}{CHORD_TYPES[pair.resolution.t]?.suffix}</div>
+          <div style={{fontSize:9,opacity:.5,fontFamily:'monospace',marginTop:4}}>🔊 ÉCOUTER</div>
+        </button>
+      </div>
+
+      {/* Explanation */}
+      <div style={{padding:'1rem',background:'rgba(133,193,233,0.05)',border:'0.5px solid rgba(133,193,233,0.15)',borderRadius:4,marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,color:'#85C1E9',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>POURQUOI ÇA FONCTIONNE</div>
+        <p style={{fontSize:13,opacity:.7,lineHeight:1.7,margin:0,fontFamily:'Georgia,serif'}}>{pair.explain}</p>
+      </div>
+
+      {pairIdx < PAIRS.length-1 && (
+        <button onClick={()=>{setPairIdx(i=>i+1);setPhase('tension');setHeard(false);}} style={{width:'100%',padding:'.85rem',background:'rgba(133,193,233,0.1)',border:'1px solid #85C1E9',color:'#85C1E9',borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+          PAIRE SUIVANTE →
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Coin de l'Harmonie — landing
+function CoinHarmoniePage() {
+  const [sub, setSub] = useState(null);
+  const MODS = [
+    {id:'construction', icon:'🧱', title:"Construction d'accords", subtitle:'ÉTAPE PAR ÉTAPE', color:'#C39BD3', ok:true},
+    {id:'tension',      icon:'⚡', title:'Tension & Résolution',   subtitle:'V7 → I ET VARIATIONS', color:'#F1948A', ok:true},
+    {id:'cadences',     icon:'🎼', title:'Cadences',               subtitle:'PARFAITE · ROMPUE · DEMI', color:'#85C1E9', ok:false},
+    {id:'extensions',   icon:'🎷', title:'Extensions & Tensions',  subtitle:'9e · 11e · 13e', color:'#F7DC6F', ok:false},
+  ];
+
+  if (sub) {
+    const info = MODS.find(m=>m.id===sub);
+    return (
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.7)',flexShrink:0}}>
+          <button onClick={()=>setSub(null)} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.05em',padding:'4px 8px',borderRadius:2}} onMouseEnter={e=>e.currentTarget.style.color='#f0ebe0'} onMouseLeave={e=>e.currentTarget.style.color='rgba(240,235,224,0.5)'}>← HARMONIE</button>
+          <span style={{opacity:.2}}>|</span>
+          <span style={{fontSize:11,fontFamily:'monospace',color:info?.color,letterSpacing:'.05em'}}>{info?.title.toUpperCase()}</span>
+        </div>
+        <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+          {sub==='construction' && <ConstructionAccords/>}
+          {sub==='tension'      && <TensionResolution/>}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Coin de l'Harmonie</h2>
+        <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>COMPRENDRE ET RESSENTIR L'HARMONIE</p>
+      </div>
+      <div style={{padding:'1rem',background:'rgba(195,155,211,0.05)',border:'0.5px solid rgba(195,155,211,0.15)',borderRadius:4,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>L'harmonie n'est pas un ensemble de règles à mémoriser — c'est un langage à ressentir. Ces modules t'aident à comprendre <em>pourquoi</em> les accords sonnent comme ils sonnent.</p>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
+        {MODS.map(m=>(
+          <button key={m.id} onClick={()=>m.ok&&setSub(m.id)} style={{background:m.ok?`${m.color}08`:'rgba(240,235,224,0.02)',border:`0.5px solid ${m.ok?m.color+'40':'rgba(240,235,224,0.08)'}`,borderRadius:4,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:m.ok?'pointer':'default',textAlign:'left',opacity:m.ok?1:.5,transition:'all 0.2s'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <span style={{fontSize:26}}>{m.icon}</span>
+              {m.ok?<span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:2}}>DISPONIBLE</span>:<span style={{fontSize:8,fontFamily:'monospace',color:'rgba(240,235,224,0.25)',border:'0.5px solid rgba(240,235,224,0.1)',padding:'2px 5px',borderRadius:2}}>BIENTÔT</span>}
+            </div>
+            <div>
+              <div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.ok?m.color:`${m.color}99`,fontFamily:'Georgia,serif'}}>{m.title}</div>
+              <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TheoriePage() {
   const CATEGORIES = [
     { title:'Harmonie classique', color:'#C39BD3', icon:'🎼', items:[
@@ -2719,7 +3173,7 @@ function ApprentissagePage({sub,setSub}){
       {sub==='oreille'&&<OreilPage/>}
       {sub==='exercices'&&<ExercicesPage/>}
       {sub==='theorie'&&<TheoriePage/>}
-      {sub==='harmonie'&&<HarmoniePage/>}
+      {sub==='harmonie'&&<CoinHarmoniePage/>}
     </div>
   </div>);
 }
@@ -2897,6 +3351,15 @@ export default function ChordApp(){
   const [showTip,setShowTip]=useState(false);
   const [showDefis,setShowDefis]=useState(false);
   const [stats,setStats]=useState(()=>resetDailyIfNeeded(loadStats()));
+  const [themeId,setThemeId]=useState(()=>{ try{return localStorage.getItem('cs_theme')||'classique';}catch{return'classique';} });
+  const theme = THEMES[themeId] || THEMES.classique;
+
+  const cycleTheme = () => {
+    const idx = THEME_IDS.indexOf(themeId);
+    const next = THEME_IDS[(idx+1)%THEME_IDS.length];
+    setThemeId(next);
+    try{ localStorage.setItem('cs_theme',next); }catch{}
+  };
 
   // Register callbacks
   _updater=(fn)=>{
@@ -2929,19 +3392,35 @@ export default function ChordApp(){
   const NC={competences:'#C39BD3',apprentissage:'#85C1E9',journal:'#82E0AA',partage:'#F7DC6F'};
   const keys=stats.keys||0;
 
-  return(<div style={{minHeight:'100vh',background:'#0f0e0c',fontFamily:"'Georgia',serif",color:'#f0ebe0',display:'flex',flexDirection:'column',position:'relative',overflow:'hidden'}}>
+  return(<div style={{minHeight:'100vh',background:theme.bg,fontFamily:"'Georgia',serif",color:theme.text,display:'flex',flexDirection:'column',position:'relative',overflow:'hidden'}}>
+
+    {/* Inject theme CSS */}
+    <style>{`
+      @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+      @keyframes slideUp{from{opacity:0;transform:translateY(16px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+      @keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+      *{box-sizing:border-box} button{cursor:pointer}
+      ${theme.css||''}
+    `}</style>
 
     {/* Header */}
-    <header style={{position:'fixed',top:0,left:0,right:0,padding:'.85rem 1.25rem',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:'0.5px solid rgba(240,235,224,0.08)',zIndex:10,background:'rgba(15,14,12,0.9)',backdropFilter:'blur(12px)'}}>
-      <span style={{fontSize:12,letterSpacing:'.2em',opacity:.5,fontFamily:'monospace'}}>CHORD·STUDIO</span>
-      <div style={{display:'flex',gap:8,alignItems:'center'}}>
-        {/* Keys display + Défis button */}
-        <button onClick={()=>setShowDefis(v=>!v)} style={{display:'flex',alignItems:'center',gap:6,background:showDefis?'rgba(247,220,111,0.12)':'transparent',border:`0.5px solid ${showDefis?'rgba(247,220,111,0.4)':'rgba(240,235,224,0.15)'}`,color:showDefis?'#F7DC6F':'rgba(240,235,224,0.55)',padding:'.35rem .85rem',borderRadius:2,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
+    <header style={{position:'fixed',top:0,left:0,right:0,padding:'.85rem 1.25rem',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`0.5px solid ${theme.borderMuted}`,zIndex:10,background:theme.headerBg,backdropFilter:'blur(12px)'}}>
+      <span style={{fontSize:12,letterSpacing:'.2em',opacity:.5,fontFamily:'monospace',color:theme.text}}>CHORD·STUDIO</span>
+      <div style={{display:'flex',gap:7,alignItems:'center'}}>
+        {/* Theme switcher */}
+        <button onClick={cycleTheme} title={`Thème : ${theme.label}`}
+          style={{background:'transparent',border:`0.5px solid ${theme.border}`,color:theme.textMuted,padding:'.35rem .65rem',borderRadius:2,cursor:'pointer',fontSize:13,transition:'all 0.2s',lineHeight:1}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=theme.text;e.currentTarget.style.color=theme.text;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.color=theme.textMuted;}}>
+          {theme.icon}
+        </button>
+        {/* Keys + Défis */}
+        <button onClick={()=>setShowDefis(v=>!v)} style={{display:'flex',alignItems:'center',gap:6,background:showDefis?'rgba(247,220,111,0.12)':'transparent',border:`0.5px solid ${showDefis?'rgba(247,220,111,0.4)':theme.border}`,color:showDefis?'#F7DC6F':theme.textMuted,padding:'.35rem .85rem',borderRadius:2,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
           <span style={{fontSize:13}}>🗝️</span>
           <span style={{fontWeight:'bold'}}>{keys}</span>
           <span style={{opacity:.6}}>DÉFIS</span>
         </button>
-        <button onClick={()=>setShowTip(v=>!v)} style={{background:'transparent',border:`0.5px solid ${showTip?'rgba(247,220,111,0.5)':'rgba(240,235,224,0.15)'}`,color:showTip?'#F7DC6F':'rgba(240,235,224,0.45)',padding:'.35rem .85rem',borderRadius:2,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>💡</button>
+        <button onClick={()=>setShowTip(v=>!v)} style={{background:'transparent',border:`0.5px solid ${showTip?'rgba(247,220,111,0.5)':theme.border}`,color:showTip?'#F7DC6F':theme.textMuted,padding:'.35rem .85rem',borderRadius:2,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>💡</button>
       </div>
     </header>
 
@@ -2952,18 +3431,11 @@ export default function ChordApp(){
         {page==='journal'&&<JournalPage/>}
     </div>
 
-    <nav style={{position:'fixed',bottom:0,left:0,right:0,display:'flex',borderTop:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.92)',backdropFilter:'blur(12px)',zIndex:10}}>
-      {NAV.map(({id,label,icon})=>{const isA=page===id,ac=NC[id];return(<button key={id} onClick={()=>{setPage(id);if(id==='apprentissage'&&apprentissageSub!=='landing'){/* keep sub */}}} style={{flex:1,padding:'.7rem .25rem',background:'none',border:'none',color:isA?ac:'rgba(240,235,224,0.28)',cursor:'pointer',transition:'all 0.2s',display:'flex',flexDirection:'column',alignItems:'center',gap:3,borderTop:isA?`1.5px solid ${ac}`:'1.5px solid transparent'}}><span style={{fontSize:15}}>{icon}</span><span style={{fontSize:8,fontFamily:'monospace',letterSpacing:'.04em'}}>{label.toUpperCase()}</span></button>);})}
+    <nav style={{position:'fixed',bottom:0,left:0,right:0,display:'flex',borderTop:`0.5px solid ${theme.borderMuted}`,background:theme.navBg,backdropFilter:'blur(12px)',zIndex:10}}>
+      {NAV.map(({id,label,icon})=>{const isA=page===id,ac=NC[id];return(<button key={id} onClick={()=>{setPage(id);}} style={{flex:1,padding:'.7rem .25rem',background:'none',border:'none',color:isA?ac:theme.textMuted,cursor:'pointer',transition:'all 0.2s',display:'flex',flexDirection:'column',alignItems:'center',gap:3,borderTop:isA?`1.5px solid ${ac}`:'1.5px solid transparent'}}><span style={{fontSize:15}}>{icon}</span><span style={{fontSize:8,fontFamily:'monospace',letterSpacing:'.04em'}}>{label.toUpperCase()}</span></button>);})}
     </nav>
 
     {showTip&&<TipPopup tip={TIPS[tipIndex]} onClose={()=>setShowTip(false)} onNext={()=>setTipIndex(i=>(i+1)%TIPS.length)}/>}
     {showDefis&&<DefisPanel stats={stats} onClose={()=>setShowDefis(false)}/>}
-
-    <style>{`
-      @keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-      @keyframes slideUp{from{opacity:0;transform:translateY(16px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}}
-      @keyframes slideInRight{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
-      *{box-sizing:border-box} button{cursor:pointer}
-    `}</style>
   </div>);
 }
