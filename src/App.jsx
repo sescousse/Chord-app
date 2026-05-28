@@ -215,15 +215,38 @@ function checkAndComplete(stats,today,dailyChallenges) {
 
 // ── Stats ─────────────────────────────────────────────────────────────────────
 const STATS_KEY='cs_stats_v2';
-const DEF_STATS={totalExercises:0,totalSeconds:0,sessionsCount:0,keys:0,todayDate:'',todayExercises:0,todayLibViews:0,todaySections:0,lastPerfect:'',lastIntervalDay:'',lastChordEarDay:'',completedChallenges:[]};
+const WEEKLY_GOALS_KEY='cs_weekly_goals_v1';
+const DEF_STATS={totalExercises:0,totalSeconds:0,sessionsCount:0,keys:0,todayDate:'',todayExercises:0,todayLibViews:0,todaySections:0,lastPerfect:'',lastIntervalDay:'',lastChordEarDay:'',completedChallenges:[],streak:0,lastActivityDate:'',weeklyGoals:{oreille:0,technique:0,theorie:0,harmonie:0}};
 const loadStats=()=>{try{return{...DEF_STATS,...JSON.parse(localStorage.getItem(STATS_KEY)||'{}')};}catch{return{...DEF_STATS};}};
 const saveStats=s=>{try{localStorage.setItem(STATS_KEY,JSON.stringify(s));}catch{}};
 function formatTime(s){if(!s||s<60)return'0 min';const m=Math.floor(s/60);if(m<60)return`${m} min`;const h=Math.floor(m/60),r=m%60;return r>0?`${h}h ${r}min`:`${h}h`;}
 function todayStr(){return new Date().toISOString().slice(0,10);}
+function yesterdayStr(){const d=new Date();d.setDate(d.getDate()-1);return d.toISOString().slice(0,10);}
+
 function resetDailyIfNeeded(stats){
   const today=todayStr();
-  if(stats.todayDate!==today) return{...stats,todayDate:today,todayExercises:0,todayLibViews:0,todaySections:0};
-  return stats;
+  if(stats.todayDate===today) return stats;
+  // Compute streak
+  const wasYesterday = stats.lastActivityDate===yesterdayStr();
+  const hadActivity  = (stats.todayExercises||0)>0||(stats.todaySections||0)>0;
+  let streak=stats.streak||0;
+  if(hadActivity){
+    // If yesterday was active OR today was already first day
+    streak = wasYesterday ? streak+1 : 1;
+  } else {
+    streak = 0;
+  }
+  return{...stats,todayDate:today,todayExercises:0,todayLibViews:0,todaySections:0,streak,lastActivityDate:hadActivity?stats.todayDate:stats.lastActivityDate||''};
+}
+
+// Helpers streak
+function computeStreak(stats){
+  const today=todayStr();
+  if(stats.todayDate!==today) return stats.streak||0;
+  // If activity today, streak is at least 1
+  const hasToday=(stats.todayExercises||0)>0||(stats.todaySections||0)>0;
+  if(!hasToday) return stats.streak||0;
+  return stats.streak||1;
 }
 
 // Module-level updater
@@ -231,10 +254,25 @@ let _updater=null;
 function updateStats(fn){if(_updater)_updater(fn);}
 function notifyExerciseDone(count,type,perfect){
   updateStats((s,today)=>{
-    let n={...s,totalExercises:(s.totalExercises||0)+count,sessionsCount:(s.sessionsCount||0)+1,todayExercises:(s.todayExercises||0)+count};
+    let n={...s,
+      totalExercises:(s.totalExercises||0)+count,
+      sessionsCount:(s.sessionsCount||0)+1,
+      todayExercises:(s.todayExercises||0)+count,
+      lastActivityDate:today,
+      // Update weekly goals by category
+      weeklyGoals:{
+        ...(s.weeklyGoals||{}),
+        ...(type?{[type]:((s.weeklyGoals||{})[type]||0)+count}:{}),
+      },
+    };
     if(perfect)n={...n,lastPerfect:today};
     if(type==='interval')n={...n,lastIntervalDay:today};
     if(type==='chord_ear')n={...n,lastChordEarDay:today};
+    // Update streak: if first activity today, increment
+    if(s.lastActivityDate!==today){
+      const wasYesterday=s.lastActivityDate===yesterdayStr();
+      n.streak = wasYesterday ? (s.streak||0)+1 : 1;
+    }
     return n;
   });
 }
@@ -465,7 +503,7 @@ function CategoryTipPopup({ category, color, onClose }) {
   if (!tip) return null;
   return (
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.6)',display:'flex',alignItems:'flex-end',justifyContent:'center',zIndex:180,backdropFilter:'blur(4px)',padding:'0 0 5rem'}}>
-      <div style={{width:'min(420px,92vw)',background:'#161512',border:`0.5px solid ${color}40`,borderRadius:6,padding:'1.25rem',animation:'slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1)',boxShadow:'0 8px 40px rgba(0,0,0,0.6)'}}>
+      <div style={{width:'min(420px,92vw)',background:'#161512',border:`0.5px solid ${color}`,borderRadius:6,padding:'1.25rem',animation:'slideUp 0.3s cubic-bezier(0.34,1.56,0.64,1)',boxShadow:'0 8px 40px rgba(0,0,0,0.6)'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.85rem'}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             <div style={{width:8,height:8,borderRadius:'50%',background:color}}/>
@@ -477,7 +515,7 @@ function CategoryTipPopup({ category, color, onClose }) {
         <p style={{fontSize:13,lineHeight:1.7,opacity:.72,margin:'0 0 1rem',fontFamily:'Georgia,serif'}}>{tip.text}</p>
         <div style={{display:'flex',gap:8}}>
           {idx < tips.length-1 && (
-            <button onClick={()=>setIdx(i=>i+1)} style={{flex:1,padding:'.55rem',background:`${color}15`,border:`0.5px solid ${color}50`,color,borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>
+            <button onClick={()=>setIdx(i=>i+1)} style={{flex:1,padding:'.55rem',background:`${color}08`,border:`0.5px solid ${color}`,color,borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>
               SUIVANT →
             </button>
           )}
@@ -653,9 +691,9 @@ function SpeedFlashcards() {
                 const c = NOTE_COLORS[root]||'#C39BD3';
                 return (
                   <button key={root} onClick={()=>handleRootAnswer(root)}
-                    style={{background:`${c}12`,border:`0.5px solid ${c}50`,color:c,padding:'.65rem .25rem',borderRadius:3,cursor:'pointer',fontSize:14,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
-                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}25`;e.currentTarget.style.transform='scale(1.04)';}}
-                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}12`;e.currentTarget.style.transform='scale(1)';}}>
+                    style={{background:`${c}`,border:`0.5px solid ${c}`,color:c,padding:'.65rem .25rem',borderRadius:3,cursor:'pointer',fontSize:14,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
+                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1.04)';}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1)';}}>
                     {root}
                   </button>
                 );
@@ -676,9 +714,9 @@ function SpeedFlashcards() {
                 const c = CHORD_COLORS[type]||'#C39BD3';
                 return (
                   <button key={type} onClick={()=>handleTypeAnswer(type)}
-                    style={{background:`${c}10`,border:`0.5px solid ${c}40`,color:c,padding:'.7rem .5rem',borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',transition:'all 0.15s'}}
-                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}22`;e.currentTarget.style.transform='scale(1.02)';}}
-                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}10`;e.currentTarget.style.transform='scale(1)';}}>
+                    style={{background:`${c}`,border:`0.5px solid ${c}`,color:c,padding:'.7rem .5rem',borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',transition:'all 0.15s'}}
+                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1.02)';}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1)';}}>
                     {label}
                   </button>
                 );
@@ -806,7 +844,7 @@ function SessionConfig({title,items,selected,onToggle,onToggleAll,exCount,setExC
         <button onClick={onToggleAll} style={{background:allSelected?'rgba(133,193,233,0.15)':'transparent',border:`0.5px solid ${allSelected?'#85C1E9':'rgba(240,235,224,0.2)'}`,color:allSelected?'#85C1E9':'rgba(240,235,224,0.5)',padding:'3px 8px',borderRadius:2,cursor:'pointer',fontSize:9,fontFamily:'monospace',letterSpacing:'.1em'}}>{allSelected?'DÉSÉLECTIONNER':'TOUT SÉLECTIONNER'}</button>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
-        {items.map(item=>{const on=selected.has(item.id);return(<button key={item.id} onClick={()=>onToggle(item.id)} style={{background:on?`${item.color}15`:'rgba(240,235,224,0.02)',border:`0.5px solid ${on?item.color:'rgba(240,235,224,0.1)'}`,borderRadius:3,padding:'.6rem .75rem',cursor:'pointer',display:'flex',alignItems:'center',gap:8,textAlign:'left',transition:'all 0.2s'}}>
+        {items.map(item=>{const on=selected.has(item.id);return(<button key={item.id} onClick={()=>onToggle(item.id)} style={{background:on?`${item.color}`:'rgba(240,235,224,0.02)',border:`0.5px solid ${on?item.color:'rgba(240,235,224,0.1)'}`,borderRadius:3,padding:'.6rem .75rem',cursor:'pointer',display:'flex',alignItems:'center',gap:8,textAlign:'left',transition:'all 0.2s'}}>
           <div style={{width:14,height:14,borderRadius:2,flexShrink:0,background:on?item.color:'rgba(240,235,224,0.1)',display:'flex',alignItems:'center',justifyContent:'center'}}>{on&&<span style={{fontSize:9,color:'#0f0e0c',fontWeight:'bold'}}>✓</span>}</div>
           <div><div style={{fontSize:12,fontWeight:'bold',color:on?item.color:'rgba(240,235,224,0.6)',fontFamily:'monospace'}}>{item.name}</div>{item.sub&&<div style={{fontSize:9,opacity:.4,fontFamily:'monospace'}}>{item.sub}</div>}</div>
         </button>);})}
@@ -881,7 +919,7 @@ function IntervalExercise({config,onFinish,onBack}){
         <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'2rem',marginBottom:'1rem'}}>
           <div style={{textAlign:'center'}}><div style={{width:54,height:54,borderRadius:'50%',background:'rgba(133,193,233,0.2)',border:'1px solid #85C1E9',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,fontWeight:'bold',color:'#85C1E9',fontFamily:'monospace',margin:'0 auto 5px'}}>{ex?NM[ex.note1%12]:'—'}</div><div style={{fontSize:9,opacity:.3,fontFamily:'monospace'}}>{ex?semiToName(ex.note1):''}</div></div>
           <div style={{fontSize:20,opacity:.25}}>→</div>
-          <div style={{textAlign:'center'}}><div style={{width:54,height:54,borderRadius:'50%',background:answered?(iv?`${iv.color}22`:'rgba(240,235,224,0.05)'):'rgba(240,235,224,0.05)',border:`1px solid ${answered?(iv?.color||'rgba(240,235,224,0.3)'):'rgba(240,235,224,0.15)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:answered?17:22,fontWeight:'bold',color:answered?(iv?.color||'#f0ebe0'):'rgba(240,235,224,0.15)',fontFamily:'monospace',margin:'0 auto 5px',transition:'all 0.3s'}}>{answered?(ex?NM[ex.note2%12]:'—'):'?'}</div><div style={{fontSize:9,opacity:.3,fontFamily:'monospace'}}>{answered&&ex?semiToName(ex.note2):''}</div></div>
+          <div style={{textAlign:'center'}}><div style={{width:54,height:54,borderRadius:'50%',background:answered?(iv?`${iv.color}`:'rgba(240,235,224,0.05)'):'rgba(240,235,224,0.05)',border:`1px solid ${answered?(iv?.color||'rgba(240,235,224,0.3)'):'rgba(240,235,224,0.15)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:answered?17:22,fontWeight:'bold',color:answered?(iv?.color||'#f0ebe0'):'rgba(240,235,224,0.15)',fontFamily:'monospace',margin:'0 auto 5px',transition:'all 0.3s'}}>{answered?(ex?NM[ex.note2%12]:'—'):'?'}</div><div style={{fontSize:9,opacity:.3,fontFamily:'monospace'}}>{answered&&ex?semiToName(ex.note2):''}</div></div>
         </div>
         {answered&&(<div style={{animation:'fadeIn 0.3s ease',marginBottom:'.75rem'}}><div style={{fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',color:correct?'#82E0AA':'#F1948A',marginBottom:4}}>{correct?'✓ Correct !':'✗ Raté'}</div><div style={{fontSize:13,color:iv?.color,fontFamily:'monospace'}}>{iv?.full} ({ex?.intSemi} demi-ton{ex?.intSemi>1?'s':''})</div>{!correct&&<div style={{fontSize:11,opacity:.4,marginTop:4,fontFamily:'monospace'}}>Tu as répondu : {INTERVALS_DATA.find(i=>i.semi===userSemi)?.full}</div>}</div>)}
         <div style={{display:'flex',gap:7,justifyContent:'center',flexWrap:'wrap'}}>
@@ -893,7 +931,7 @@ function IntervalExercise({config,onFinish,onBack}){
       {answered&&showPiano&&ex&&(<div style={{padding:'1rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:4,animation:'fadeIn 0.3s ease',overflowX:'auto'}}><div style={{fontSize:9,opacity:.3,fontFamily:'monospace',marginBottom:'.75rem',textAlign:'center'}}><span style={{color:'#85C1E9'}}>■</span> Départ &nbsp;<span style={{color:iv?.color}}>■</span> Arrivée</div><PianoKeyboard colors={pianoColors}/></div>)}
       <div><div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>{answered?'INTERVALLES':'CHOISIR'}</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:6}}>
-          {selIvs.map(i=>{const isU=userSemi===i.semi,isOk=i.semi===ex?.intSemi;let bg='rgba(240,235,224,0.03)',b='rgba(240,235,224,0.1)',col='rgba(240,235,224,0.7)';if(answered){if(isOk){bg=`${i.color}20`;b=i.color;col=i.color;}else if(isU){bg='rgba(241,148,138,0.1)';b='#F1948A';col='#F1948A';}else col='rgba(240,235,224,0.2)';}return(<button key={i.semi} onClick={()=>handleAnswer(i.semi)} disabled={answered} style={{background:bg,border:`0.5px solid ${b}`,color:col,padding:'.65rem .25rem',borderRadius:3,cursor:answered?'default':'pointer',fontSize:11,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.02em',transition:'all 0.2s',lineHeight:1.3}}>{i.name}</button>);})}
+          {selIvs.map(i=>{const isU=userSemi===i.semi,isOk=i.semi===ex?.intSemi;let bg='rgba(240,235,224,0.03)',b='rgba(240,235,224,0.1)',col='rgba(240,235,224,0.7)';if(answered){if(isOk){bg=`${i.color}`;b=i.color;col=i.color;}else if(isU){bg='rgba(241,148,138,0.1)';b='#F1948A';col='#F1948A';}else col='rgba(240,235,224,0.2)';}return(<button key={i.semi} onClick={()=>handleAnswer(i.semi)} disabled={answered} style={{background:bg,border:`0.5px solid ${b}`,color:col,padding:'.65rem .25rem',borderRadius:3,cursor:answered?'default':'pointer',fontSize:11,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.02em',transition:'all 0.2s',lineHeight:1.3}}>{i.name}</button>);})}
         </div>
       </div>
       {answered&&(<button onClick={handleNext} style={{width:'100%',padding:'.9rem',background:correct?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.08)',border:`1px solid ${correct?'#82E0AA':'#F1948A'}`,color:correct?'#82E0AA':'#F1948A',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>{idx>=exCount-1?'VOIR LES RÉSULTATS →':'EXERCICE SUIVANT →'}</button>)}
@@ -957,7 +995,7 @@ function ChordExercise({config,onFinish,onBack}){
       {answered&&showPiano&&ex&&(<div style={{padding:'1rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:4,animation:'fadeIn 0.3s ease',overflowX:'auto'}}><div style={{fontSize:9,opacity:.3,fontFamily:'monospace',marginBottom:'.75rem',textAlign:'center'}}><span style={{color:'#85C1E9'}}>■</span> Tonique &nbsp;<span style={{color:CHORD_COLORS[ex.type]}}>■</span> Notes</div><PianoKeyboard colors={pianoColors}/></div>)}
       <div><div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>{answered?'TYPES':'CHOISIR LE TYPE'}</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:6}}>
-          {selTypes.map(([type,{label}])=>{const isU=userType===type,isOk=type===ex?.type,tc=CHORD_COLORS[type]||'#C39BD3';let bg='rgba(240,235,224,0.03)',b='rgba(240,235,224,0.1)',col='rgba(240,235,224,0.7)';if(answered){if(isOk){bg=`${tc}20`;b=tc;col=tc;}else if(isU){bg='rgba(241,148,138,0.1)';b='#F1948A';col='#F1948A';}else col='rgba(240,235,224,0.2)';}return(<button key={type} onClick={()=>handleAnswer(type)} disabled={answered} style={{background:bg,border:`0.5px solid ${b}`,color:col,padding:'.7rem .5rem',borderRadius:3,cursor:answered?'default':'pointer',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',transition:'all 0.2s'}}>{label}</button>);})}
+          {selTypes.map(([type,{label}])=>{const isU=userType===type,isOk=type===ex?.type,tc=CHORD_COLORS[type]||'#C39BD3';let bg='rgba(240,235,224,0.03)',b='rgba(240,235,224,0.1)',col='rgba(240,235,224,0.7)';if(answered){if(isOk){bg=`${tc}`;b=tc;col=tc;}else if(isU){bg='rgba(241,148,138,0.1)';b='#F1948A';col='#F1948A';}else col='rgba(240,235,224,0.2)';}return(<button key={type} onClick={()=>handleAnswer(type)} disabled={answered} style={{background:bg,border:`0.5px solid ${b}`,color:col,padding:'.7rem .5rem',borderRadius:3,cursor:answered?'default':'pointer',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',transition:'all 0.2s'}}>{label}</button>);})}
         </div>
       </div>
       {answered&&(<button onClick={handleNext} style={{width:'100%',padding:'.9rem',background:correct?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.08)',border:`1px solid ${correct?'#82E0AA':'#F1948A'}`,color:correct?'#82E0AA':'#F1948A',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>{idx>=exCount-1?'VOIR LES RÉSULTATS →':'EXERCICE SUIVANT →'}</button>)}
@@ -1160,7 +1198,7 @@ function MelodieSection({ onBack }) {
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           {DIFFICULTIES.map(d => (
             <button key={d.id} onClick={()=>setDifficulty(d)}
-              style={{background:difficulty.id===d.id?`${d.color}15`:'rgba(255,255,255,0.03)',border:`1.5px solid ${difficulty.id===d.id?d.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              style={{background:difficulty.id===d.id?`${d.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${difficulty.id===d.id?d.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div>
                 <span style={{fontSize:14,fontWeight:'bold',color:difficulty.id===d.id?d.color:'#fff',fontFamily:'Georgia,serif'}}>{d.label}</span>
                 <span style={{fontSize:10,opacity:.5,fontFamily:'monospace',marginLeft:10}}>{d.length} notes · {d.lives} vie{d.lives>1?'s':''} · {d.scale===PENTATONIC_SEMIS?'Pentatonique':'Gamme majeure'}</span>
@@ -1177,12 +1215,12 @@ function MelodieSection({ onBack }) {
         </div>
         <div style={{display:'flex',gap:8}}>
           {[[1,'🎵 Normale'],[0.5,'🐢 Lente']].map(([v,label])=>(
-            <button key={v} onClick={()=>setTempoFactor(v)} style={{flex:1,padding:'.55rem',background:tempoFactor===v?`${difficulty.color}18`:'transparent',border:`1px solid ${tempoFactor===v?difficulty.color:'rgba(255,255,255,0.12)'}`,borderRadius:8,cursor:'pointer',color:tempoFactor===v?difficulty.color:'rgba(255,255,255,0.45)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s'}}>{label}</button>
+            <button key={v} onClick={()=>setTempoFactor(v)} style={{flex:1,padding:'.55rem',background:tempoFactor===v?`${difficulty.color}`:'transparent',border:`1px solid ${tempoFactor===v?difficulty.color:'rgba(255,255,255,0.12)'}`,borderRadius:8,cursor:'pointer',color:tempoFactor===v?difficulty.color:'rgba(255,255,255,0.45)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s'}}>{label}</button>
           ))}
         </div>
       </div>
       <button onClick={()=>{setRound(0);setScore({correct:0,total:0});startRound(difficulty);}}
-        style={{width:'100%',padding:'1rem',background:`${difficulty.color}18`,border:`1.5px solid ${difficulty.color}`,color:difficulty.color,borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+        style={{width:'100%',padding:'1rem',background:`${difficulty.color}`,border:`1.5px solid ${difficulty.color}`,color:difficulty.color,borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
         COMMENCER →
       </button>
     </div>
@@ -1194,14 +1232,14 @@ function MelodieSection({ onBack }) {
     const mc  = pct>=80?'#82E0AA':pct>=50?'#F7DC6F':'#F1948A';
     return (
       <div style={{flex:1,overflowY:'auto',padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
-        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}35`,borderRadius:14}}>
           <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
           <div style={{fontSize:68,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/5</span></div>
           <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
           <div style={{fontSize:13,opacity:.5,fontFamily:'Georgia,serif',marginTop:8}}>{pct>=80?'Excellent ! Ton oreille est affûtée 🎉':pct>=50?'Bien joué, continue !':'Entraîne-toi encore !'}</div>
         </div>
         <button onClick={()=>{setRound(0);setScore({correct:0,total:0});startRound(difficulty);}}
-          style={{padding:'.9rem',background:`${difficulty.color}15`,border:`1.5px solid ${difficulty.color}`,color:difficulty.color,borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+          style={{padding:'.9rem',background:`${difficulty.color}`,border:`1.5px solid ${difficulty.color}`,color:difficulty.color,borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
           🔄 REJOUER
         </button>
         <button onClick={()=>setScreen('config')}
@@ -1245,7 +1283,7 @@ function MelodieSection({ onBack }) {
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
           {melody.map((_, i)=>(
             <div key={i} style={{width:12,height:12,borderRadius:'50%',
-              background:i<currentNoteIdx?difficulty.color:i===currentNoteIdx?`${difficulty.color}60`:'rgba(255,255,255,0.1)',
+              background:i<currentNoteIdx?difficulty.color:i===currentNoteIdx?`${difficulty.color}`:'rgba(255,255,255,0.1)',
               border:i===currentNoteIdx?`2px solid ${difficulty.color}`:'2px solid transparent',
               transition:'all 0.2s'}}/>
           ))}
@@ -1581,10 +1619,10 @@ function ImprovisationGuidee() {
     return (
       <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
         {/* Header */}
-        <div style={{padding:'1.25rem',background:`${style?.color||'#8B5CF6'}12`,border:`1px solid ${style?.color||'#8B5CF6'}35`,borderRadius:14}}>
+        <div style={{padding:'1.25rem',background:`${style?.color||'#8B5CF6'}`,border:`1px solid ${style?.color||'#8B5CF6'}`,borderRadius:14}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.5rem'}}>
             <div style={{fontSize:18,fontWeight:'bold',color:style?.color||'#8B5CF6',fontFamily:'Georgia,serif'}}>{style?.label} — {key}</div>
-            <button onClick={generate} style={{padding:'.4rem .85rem',background:`${style?.color||'#8B5CF6'}20`,border:`1px solid ${style?.color||'#8B5CF6'}`,color:style?.color||'#8B5CF6',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em'}}>🎲 NOUVEAU</button>
+            <button onClick={generate} style={{padding:'.4rem .85rem',background:`${style?.color||'#8B5CF6'}`,border:`1px solid ${style?.color||'#8B5CF6'}`,color:style?.color||'#8B5CF6',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em'}}>🎲 NOUVEAU</button>
           </div>
           <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>{style?.desc}</p>
         </div>
@@ -1598,7 +1636,7 @@ function ImprovisationGuidee() {
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             {scaleNoteNames.map((n,i)=>{
               const nc=NOTE_COLORS[n]||'#C39BD3';
-              return <div key={i} style={{width:38,height:38,borderRadius:'50%',background:`${nc}20`,border:`1.5px solid ${nc}60`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:'bold',color:nc,fontFamily:'monospace'}}>{n}</div>;
+              return <div key={i} style={{width:38,height:38,borderRadius:'50%',background:`${nc}10`,border:`1.5px solid ${nc}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:'bold',color:nc,fontFamily:'monospace'}}>{n}</div>;
             })}
           </div>
         </div>
@@ -1614,7 +1652,7 @@ function ImprovisationGuidee() {
           <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
             {result.prog.map((chord,ci)=>{
               const nc=NOTE_COLORS[chord.r]||'#C39BD3';
-              return <div key={ci} style={{padding:'.55rem .8rem',background:`${nc}15`,border:`1.5px solid ${nc}50`,borderRadius:10,textAlign:'center'}}>
+              return <div key={ci} style={{padding:'.55rem .8rem',background:`${nc}10`,border:`1.5px solid ${nc}`,borderRadius:10,textAlign:'center'}}>
                 <div style={{fontSize:16,fontWeight:'bold',color:nc,fontFamily:'monospace',lineHeight:1}}>{chord.r}{CHORD_TYPES[chord.t]?.suffix}</div>
               </div>;
             })}
@@ -1655,9 +1693,9 @@ function ImprovisationGuidee() {
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {IMPRO_STYLES.map(s=>(
           <button key={s.id} onClick={()=>{setStyle(s);generate();}}
-            style={{background:style?.id===s.id?`${s.color}15`:'rgba(255,255,255,0.03)',border:`1.5px solid ${style?.id===s.id?s.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${s.color}10`;e.currentTarget.style.borderColor=`${s.color}50`;}}
-            onMouseLeave={e=>{e.currentTarget.style.background=style?.id===s.id?`${s.color}15`:'rgba(255,255,255,0.03)';e.currentTarget.style.borderColor=style?.id===s.id?s.color:'rgba(255,255,255,0.1)';}}>
+            style={{background:style?.id===s.id?`${s.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${style?.id===s.id?s.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${s.color}`;e.currentTarget.style.borderColor=`${s.color}`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=style?.id===s.id?`${s.color}`:'rgba(255,255,255,0.03)';e.currentTarget.style.borderColor=style?.id===s.id?s.color:'rgba(255,255,255,0.1)';}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div style={{fontSize:14,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif'}}>{s.label}</div>
               <span style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{s.scale.length} notes →</span>
@@ -1673,6 +1711,12 @@ function ImprovisationGuidee() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ── MASCOTTE — Noire musicale ─────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
+// Module-level mascotte trigger (called from exercises)
+let _mascotteTrigger = null;
+function triggerMascotte(type, delay=400) {
+  if (_mascotteTrigger) setTimeout(() => _mascotteTrigger(type), delay);
+}
+
 const MASCOTTE_DIALOGUES = {
   idle: [
     "Psst ! Tu n'as pas pratiqué depuis un moment… 🎵",
@@ -1680,18 +1724,50 @@ const MASCOTTE_DIALOGUES = {
     "Ton oreille s'améliore si tu travailles chaque jour 🎹",
     "Je m'ennuie… et toi ? On fait un exercice ?",
     "La régularité, c'est la clé du musicien 🗝️",
+    "Hey ! L'oreille musicale se forme avec la répétition. On y va ?",
+    "Je suis là, prête à t'aider. Quel module t'intéresse ?",
   ],
   success: [
     "Bravo ! Tu progresses à vue d'œil ! 🎉",
     "Excellent travail ! Ton oreille se développe !",
     "Super ! Continue comme ça, tu vas tout déchirer ! 🔥",
-    "Wahou ! Je suis fier de toi ! 🌟",
+    "Wahou ! Je suis fière de toi ! 🌟",
     "Parfait ! Un vrai musicien en herbe ! 🎼",
+    "Incroyable ! Tu as l'oreille d'un pro ! 🎧",
+    "Quelle précision ! Tu vas progresser très vite ! 🚀",
   ],
   encourage: [
     "Ne lâche pas ! Chaque erreur est un apprentissage.",
     "C'est difficile, mais tu y es presque !",
     "Allez, encore un effort ! Tu peux le faire ! 💪",
+    "C'est normal de se tromper. Les meilleurs se sont tous trompés !",
+    "La musique, ça prend du temps. Tu es sur la bonne voie.",
+  ],
+  streak: [
+    "🔥 Incroyable ! Ta série continue ! La régularité paie !",
+    "⚡ Tu es en feu ! {streak} jours consécutifs, c'est impressionnant !",
+    "🌟 {streak} jours de pratique ! Tu deviens un vrai musicien !",
+    "💪 Ta discipline est exemplaire ! {streak} jours de suite !",
+  ],
+  oreille: [
+    "L'oreille musicale s'entraîne comme un muscle. Un peu chaque jour !",
+    "Écoute les sons qui t'entourent. La musique est partout !",
+    "Essaie de chanter les intervalles que tu entends. Ça aide vraiment !",
+  ],
+  theorie: [
+    "La théorie, c'est le langage de la musique. Chaque concept te débloque !",
+    "Clique sur les mots en gras pour que je t'explique ! Je ADORE expliquer 😊",
+    "La théorie musicale date du Moyen Âge. Tu apprends quelque chose de millénaire !",
+  ],
+  technique: [
+    "La technique se construit lentement. Patience, jeune pianiste !",
+    "Practise makes perfect — mais pas n'importe comment. Toujours lentement d'abord !",
+    "Hanon avait raison : 15 minutes de gammes par jour changent tout !",
+  ],
+  record: [
+    "🏆 Nouveau record ! Tu t'es surpassé !",
+    "⭐ Tu bats ton propre record ! Fantastique !",
+    "🎯 Score parfait ! Tu maîtrises ce chapitre !",
   ],
 };
 
@@ -1738,10 +1814,11 @@ function Mascotte({ expression='normal', size=80, animate=false }) {
   );
 }
 
-function MascoттePopup({ type='idle', onClose, onAction, actionLabel='Pratiquer !' }) {
+function MascoттePopup({ type='idle', onClose, onAction, actionLabel='Pratiquer !', streak=0 }) {
   const msgs = MASCOTTE_DIALOGUES[type] || MASCOTTE_DIALOGUES.idle;
-  const msg  = msgs[Math.floor(Math.random()*msgs.length)];
-  const expr = type==='success'?'happy':type==='encourage'?'sad':'normal';
+  const rawMsg = msgs[Math.floor(Math.random()*msgs.length)];
+  const msg = rawMsg.replace('{streak}', streak.toString());
+  const expr = type==='success'||type==='record'?'happy':type==='encourage'?'sad':'normal';
 
   return (
     <div style={{position:'fixed',bottom:'5.5rem',left:'50%',transform:'translateX(-50%)',width:'min(320px,88vw)',background:'linear-gradient(135deg,#1a0a2e,#0D0B1E)',border:'2px solid rgba(167,139,250,0.5)',borderRadius:20,padding:'1.25rem',zIndex:300,boxShadow:'0 16px 48px rgba(139,92,246,0.4)',animation:'slideUp 0.4s cubic-bezier(0.34,1.56,0.64,1)'}}>
@@ -1914,7 +1991,7 @@ function GammeRecognition({ onBack }) {
             {id:'tonality', label:'Niveau 2 — + Tonalité',       desc:'Identifier aussi la note tonique',  color:'#F7DC6F'},
           ].map(l=>(
             <button key={l.id} onClick={()=>setLevel(l.id)}
-              style={{background:level===l.id?`${l.color}15`:'rgba(255,255,255,0.03)',border:`1.5px solid ${level===l.id?l.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              style={{background:level===l.id?`${l.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${level===l.id?l.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div>
                 <div style={{fontSize:14,fontWeight:'bold',color:level===l.id?l.color:'#fff',fontFamily:'Georgia,serif',marginBottom:2}}>{l.label}</div>
                 <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{l.desc}</div>
@@ -1947,7 +2024,7 @@ function GammeRecognition({ onBack }) {
             <Mascotte expression="happy" size={80} animate/>
           </div>
         )}
-        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}35`,borderRadius:14}}>
           <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
           <div style={{fontSize:68,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score}<span style={{fontSize:28,opacity:.5}}>/{exercises.length}</span></div>
           <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
@@ -2003,9 +2080,9 @@ function GammeRecognition({ onBack }) {
               {val:'minor', label:'🌙 MINEUR', desc:'Sombre, mélancolique', color:'#C39BD3'},
             ].map(opt=>(
               <button key={opt.val} onClick={()=>handleAnswer(opt.val)}
-                style={{padding:'1.25rem .5rem',background:`${opt.color}10`,border:`1.5px solid ${opt.color}40`,borderRadius:14,cursor:'pointer',textAlign:'center',transition:'all 0.2s'}}
-                onMouseEnter={e=>{e.currentTarget.style.background=`${opt.color}20`;e.currentTarget.style.borderColor=opt.color;e.currentTarget.style.transform='scale(1.03)';}}
-                onMouseLeave={e=>{e.currentTarget.style.background=`${opt.color}10`;e.currentTarget.style.borderColor=`${opt.color}40`;e.currentTarget.style.transform='scale(1)';}}>
+                style={{padding:'1.25rem .5rem',background:`${opt.color}08`,border:`1.5px solid ${opt.color}40`,borderRadius:14,cursor:'pointer',textAlign:'center',transition:'all 0.2s'}}
+                onMouseEnter={e=>{e.currentTarget.style.background=`${opt.color}`;e.currentTarget.style.borderColor=opt.color;e.currentTarget.style.transform='scale(1.03)';}}
+                onMouseLeave={e=>{e.currentTarget.style.background=`${opt.color}`;e.currentTarget.style.borderColor=`${opt.color}`;e.currentTarget.style.transform='scale(1)';}}>
                 <div style={{fontSize:20,fontWeight:'bold',color:opt.color,fontFamily:'Georgia,serif',marginBottom:4}}>{opt.label}</div>
                 <div style={{fontSize:10,opacity:.55,fontFamily:'monospace'}}>{opt.desc}</div>
               </button>
@@ -2021,16 +2098,16 @@ function GammeRecognition({ onBack }) {
               {ROOT_NOTES.map(k=>{
                 const nc=NOTE_COLORS[k]||'#F7DC6F';
                 return <button key={k} onClick={()=>handleAnswer({key:k,mode:'major'})}
-                  style={{background:`${nc}10`,border:`1px solid ${nc}40`,color:nc,padding:'.5rem .1rem',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
-                  onMouseEnter={e=>{e.currentTarget.style.background=`${nc}22`;e.currentTarget.style.transform='scale(1.05)';}}
-                  onMouseLeave={e=>{e.currentTarget.style.background=`${nc}10`;e.currentTarget.style.transform='scale(1)';}}>{k}</button>;
+                  style={{background:`${nc}10`,border:`1px solid ${nc}`,color:nc,padding:'.5rem .1rem',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
+                  onMouseEnter={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1.05)';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1)';}}>{k}</button>;
               })}
             </div>
             <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>PUIS LE MODE</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
               {[{val:'major',label:'☀ Majeur',color:'#F7DC6F'},{val:'minor',label:'🌙 Mineur',color:'#C39BD3'}].map(m=>(
                 <button key={m.val} onClick={()=>handleAnswer({key:ex?.key||'C',mode:m.val})}
-                  style={{padding:'.75rem',background:`${m.color}10`,border:`1px solid ${m.color}40`,borderRadius:10,cursor:'pointer',color:m.color,fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+                  style={{padding:'.75rem',background:`${m.color}08`,border:`1px solid ${m.color}`,borderRadius:10,cursor:'pointer',color:m.color,fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
                   {m.label}
                 </button>
               ))}
@@ -2076,12 +2153,12 @@ function OreilPage(){
     </div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
       {MODS.map(m=>(<button key={m.id} onClick={()=>setSub(m.id)}
-        style={{background:`${m.color}08`,border:`1px solid ${m.color}40`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-        onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
-        onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}40`;e.currentTarget.style.transform='translateY(0)';}}>
+        style={{background:`${m.color}08`,border:`1px solid ${m.color}`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+        onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+        onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
           <span style={{fontSize:26}}>{m.icon}</span>
-          <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
+          <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
         </div>
         <div>
           <div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.color,fontFamily:'Georgia,serif'}}>{m.title}</div>
@@ -2330,7 +2407,7 @@ function BackTrack({ progression, color }) {
           const isActive = playing && curIdx===ci;
           const nc = NOTE_COLORS[chord.r]||color;
           return (
-            <div key={ci} style={{padding:'.45rem .75rem',borderRadius:8,background:isActive?`${nc}28`:`${nc}10`,border:`1px solid ${isActive?nc:nc+'40'}`,transition:'all 0.15s',transform:isActive?'scale(1.08)':'scale(1)'}}>
+            <div key={ci} style={{padding:'.45rem .75rem',borderRadius:8,background:isActive?`${nc}`:`${nc}`,border:`1px solid ${isActive?nc:nc+'40'}`,transition:'all 0.15s',transform:isActive?'scale(1.08)':'scale(1)'}}>
               <div style={{fontSize:13,fontWeight:'bold',color:nc,fontFamily:'monospace',lineHeight:1}}>{chord.r}{CHORD_TYPES[chord.t]?.suffix}</div>
               {isActive && <div style={{fontSize:7,opacity:.6,fontFamily:'monospace',marginTop:2,textAlign:'center'}}>{beatsLeft}♩</div>}
             </div>
@@ -2369,8 +2446,8 @@ function CircleOfFifthsSVG({ doneKeys, currentKey, color }) {
         return (
           <g key={key}>
             <circle cx={x} cy={y} r={20}
-              fill={isCur?color:isDone?`${color}30`:'rgba(255,255,255,0.05)'}
-              stroke={isCur?color:isDone?`${color}60`:'rgba(255,255,255,0.15)'}
+              fill={isCur?color:isDone?`${color}`:'rgba(255,255,255,0.05)'}
+              stroke={isCur?color:isDone?`${color}`:'rgba(255,255,255,0.15)'}
               strokeWidth={isCur?2:1}/>
             <text x={x} y={y+4} textAnchor="middle" fontSize={11}
               fill={isCur?'#0D0B1E':isDone?color:'rgba(255,255,255,0.5)'}
@@ -2483,7 +2560,7 @@ function CycleQuintesExercice() {
           {num:'③',title:"Astuce pour réussir",color:'#82E0AA',text:"Écoute avant de répondre — le bouton RÉÉCOUTER est là pour ça. Commence par la progression I-IV-V, la plus simple."},
           {num:'④',title:"Pourquoi c'est essentiel ?",color:'#C39BD3',text:"Maîtriser ses progressions dans toutes les tonalités permet de jouer avec n'importe qui. C'est l'exercice quotidien des musiciens de jazz professionnels."},
         ].map(s=>(
-          <div key={s.num} style={{padding:'1rem',background:`${s.color}08`,border:`1px solid ${s.color}30`,borderRadius:12}}>
+          <div key={s.num} style={{padding:'1rem',background:`${s.color}08`,border:`1px solid ${s.color}22`,borderRadius:12}}>
             <div style={{display:'flex',gap:10,alignItems:'flex-start'}}>
               <span style={{fontSize:18,flexShrink:0}}>{s.num}</span>
               <div>
@@ -2515,7 +2592,7 @@ function CycleQuintesExercice() {
         <div style={{display:'flex',flexDirection:'column',gap:7}}>
           {PROG_TYPES.map(pt=>(
             <button key={pt.id} onClick={()=>setProgType(pt)}
-              style={{background:progType.id===pt.id?`${pt.color}15`:'rgba(255,255,255,0.03)',border:`1px solid ${progType.id===pt.id?pt.color:'rgba(255,255,255,0.1)'}`,borderRadius:10,padding:'.75rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              style={{background:progType.id===pt.id?`${pt.color}`:'rgba(255,255,255,0.03)',border:`1px solid ${progType.id===pt.id?pt.color:'rgba(255,255,255,0.1)'}`,borderRadius:10,padding:'.75rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div>
                 <div style={{fontSize:14,fontWeight:'bold',color:progType.id===pt.id?pt.color:'#fff',fontFamily:'Georgia,serif',marginBottom:2}}>{pt.label}</div>
                 <div style={{fontSize:10,opacity:.4,fontFamily:'monospace'}}>{pt.desc}</div>
@@ -2601,14 +2678,14 @@ function CycleQuintesExercice() {
                     {ROOT_NOTES.map(root=>{
                       const nc=NOTE_COLORS[root]||'#C39BD3', sel=uc?.root===root;
                       return <button key={root} onClick={()=>handleUserChord(ci,root,uc?.type)}
-                        style={{background:sel?`${nc}25`:`${nc}10`,border:`1px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.4rem .1rem',borderRadius:6,cursor:'pointer',fontSize:11,fontFamily:'monospace',fontWeight:sel?'bold':'normal',transition:'all 0.15s'}}>{root}</button>;
+                        style={{background:sel?`${nc}`:`${nc}`,border:`1px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.4rem .1rem',borderRadius:6,cursor:'pointer',fontSize:11,fontFamily:'monospace',fontWeight:sel?'bold':'normal',transition:'all 0.15s'}}>{root}</button>;
                     })}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
                     {Object.entries(CHORD_TYPES).map(([t,{label}])=>{
                       const tc2=CHORD_COLORS[t]||'#C39BD3', sel=uc?.type===t;
                       return <button key={t} onClick={()=>handleUserChord(ci,uc?.root||'',t)}
-                        style={{background:sel?`${tc2}22`:`${tc2}08`,border:`1px solid ${sel?tc2:tc2+'30'}`,color:sel?tc2:`${tc2}99`,padding:'.4rem .25rem',borderRadius:6,cursor:'pointer',fontSize:9,fontFamily:'monospace',transition:'all 0.15s'}}>{label}</button>;
+                        style={{background:sel?`${tc2}`:`${tc2}`,border:`1px solid ${sel?tc2:tc2+'30'}`,color:sel?tc2:`${tc2}`,padding:'.4rem .25rem',borderRadius:6,cursor:'pointer',fontSize:9,fontFamily:'monospace',transition:'all 0.15s'}}>{label}</button>;
                     })}
                   </div>
                 </div>
@@ -2689,14 +2766,14 @@ function TranspositionExercice() {
         <div style={{display:'flex',flexDirection:'column',gap:6}}>
           {SONGS_TABS.slice(0,8).map(s=>(
             <button key={s.id} onClick={()=>setSong(s)}
-              style={{background:song?.id===s.id?`${s.color}15`:'rgba(255,255,255,0.03)',border:`1px solid ${song?.id===s.id?s.color:'rgba(255,255,255,0.1)'}`,borderRadius:10,padding:'.65rem .9rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              style={{background:song?.id===s.id?`${s.color}`:'rgba(255,255,255,0.03)',border:`1px solid ${song?.id===s.id?s.color:'rgba(255,255,255,0.1)'}`,borderRadius:10,padding:'.65rem .9rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div>
                 <span style={{fontSize:13,fontWeight:'bold',color:song?.id===s.id?s.color:'#fff',fontFamily:'Georgia,serif'}}>{s.title}</span>
                 <span style={{fontSize:10,opacity:.4,fontFamily:'monospace',marginLeft:8}}>{s.key}</span>
               </div>
               <div style={{display:'flex',gap:4,flexWrap:'wrap',maxWidth:'50%',justifyContent:'flex-end'}}>
                 {s.chords.slice(0,4).map((c,ci)=>(
-                  <span key={ci} style={{fontSize:9,fontFamily:'monospace',color:NOTE_COLORS[c.n]||'#C39BD3',padding:'1px 5px',background:`${NOTE_COLORS[c.n]||'#C39BD3'}15`,borderRadius:4}}>
+                  <span key={ci} style={{fontSize:9,fontFamily:'monospace',color:NOTE_COLORS[c.n]||'#C39BD3',padding:'1px 5px',background:`${NOTE_COLORS[c.n]||'#C39BD3'}`,borderRadius:4}}>
                     {c.n}{CHORD_TYPES[c.t]?.suffix}
                   </span>
                 ))}
@@ -2713,7 +2790,7 @@ function TranspositionExercice() {
             {CIRCLE_KEYS.map(k=>{
               const nc=NOTE_COLORS[k]||'#85C1E9', sel=targetKey===k;
               return <button key={k} onClick={()=>setTargetKey(k)}
-                style={{background:sel?`${nc}22`:`${nc}10`,border:`1px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.6rem .25rem',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 10px ${nc}40`:'none'}}>
+                style={{background:sel?`${nc}`:`${nc}`,border:`1px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.6rem .25rem',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 10px ${nc}`:'none'}}>
                 {k}
               </button>;
             })}
@@ -2778,9 +2855,9 @@ function TranspositionExercice() {
                   {ROOT_NOTES.map(root=>{
                     const nc=NOTE_COLORS[root]||'#C39BD3';
                     return <button key={root} onClick={()=>handleAnswer(ci,root)}
-                      style={{background:`${nc}10`,border:`1px solid ${nc}40`,color:nc,padding:'.45rem .1rem',borderRadius:6,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.15s'}}
-                      onMouseEnter={e=>{e.currentTarget.style.background=`${nc}25`;e.currentTarget.style.transform='scale(1.04)';}}
-                      onMouseLeave={e=>{e.currentTarget.style.background=`${nc}10`;e.currentTarget.style.transform='scale(1)';}}>
+                      style={{background:`${nc}10`,border:`1px solid ${nc}`,color:nc,padding:'.45rem .1rem',borderRadius:6,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.15s'}}
+                      onMouseEnter={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1.04)';}}
+                      onMouseLeave={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1)';}}>
                       {root}
                     </button>;
                   })}
@@ -2851,7 +2928,7 @@ function VoiceLeadingPanel({ progression, color }) {
   }
 
   return (
-    <div style={{ padding: '1rem', background: 'rgba(240,235,224,0.02)', border: `0.5px solid ${color}30`, borderRadius: 4 }}>
+    <div style={{ padding: '1rem', background: 'rgba(240,235,224,0.02)', border: `0.5px solid ${color}`, borderRadius: 4 }}>
       {/* Header toggle */}
       <button onClick={() => setExpanded(v => !v)}
         style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 0 }}>
@@ -2873,7 +2950,7 @@ function VoiceLeadingPanel({ progression, color }) {
               const nc = NOTE_COLORS[t.to.r] || color;
               return (
                 <button key={i} onClick={() => setActiveStep(isActive ? null : i)}
-                  style={{ background: isActive ? `${nc}15` : 'rgba(240,235,224,0.03)', border: `0.5px solid ${isActive ? nc : 'rgba(240,235,224,0.1)'}`, borderRadius: 3, padding: '.75rem .9rem', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}>
+                  style={{ background: isActive ? `${nc}` : 'rgba(240,235,224,0.03)', border: `0.5px solid ${isActive ? nc : 'rgba(240,235,224,0.1)'}`, borderRadius: 3, padding: '.75rem .9rem', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span style={{ fontSize: 13, fontFamily: 'monospace', color: NOTE_COLORS[t.from.r] || '#85C1E9' }}>{t.from.r}{CHORD_TYPES[t.from.t]?.suffix}</span>
@@ -2969,7 +3046,7 @@ function ImproPage() {
             </div>
 
             {/* Emotion */}
-            <div style={{padding:'1rem',background:`${selected.color}08`,border:`0.5px solid ${selected.color}30`,borderRadius:4}}>
+            <div style={{padding:'1rem',background:`${selected.color}`,border:`0.5px solid ${selected.color}`,borderRadius:4}}>
               <div style={{fontSize:10,color:selected.color,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>COULEUR ÉMOTIONNELLE</div>
               <p style={{fontSize:13.5,lineHeight:1.65,opacity:.78,margin:0,fontFamily:'Georgia,serif'}}>{selected.emotion}</p>
             </div>
@@ -2979,7 +3056,7 @@ function ImproPage() {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.75rem'}}>
                 <span style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace'}}>ACCORDS</span>
                 <button onClick={()=>playSequence(selected)} disabled={sequencing}
-                  style={{background:sequencing?`${selected.color}20`:'transparent',border:`0.5px solid ${sequencing?selected.color:'rgba(240,235,224,0.2)'}`,color:sequencing?selected.color:'rgba(240,235,224,0.55)',padding:'.35rem .85rem',borderRadius:2,cursor:sequencing?'default':'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
+                  style={{background:sequencing?`${selected.color}`:'transparent',border:`0.5px solid ${sequencing?selected.color:'rgba(240,235,224,0.2)'}`,color:sequencing?selected.color:'rgba(240,235,224,0.55)',padding:'.35rem .85rem',borderRadius:2,cursor:sequencing?'default':'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
                   {sequencing?'▶ EN COURS…':'▶ JOUER LA SÉQUENCE'}
                 </button>
               </div>
@@ -2990,7 +3067,7 @@ function ImproPage() {
                   const fnColor=getFnColor(chord.fn);
                   return (
                     <button key={ci} onClick={()=>playChord(chord.r,chord.t,ci)}
-                      style={{background:isActive?`${nc}25`:`${nc}10`,border:`0.5px solid ${isActive?nc:nc+'40'}`,borderRadius:3,padding:'.65rem .9rem',cursor:'pointer',transition:'all 0.15s',transform:isActive?'scale(1.06)':'scale(1)',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                      style={{background:isActive?`${nc}`:`${nc}`,border:`0.5px solid ${isActive?nc:nc+'40'}`,borderRadius:3,padding:'.65rem .9rem',cursor:'pointer',transition:'all 0.15s',transform:isActive?'scale(1.06)':'scale(1)',display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
                       <span style={{fontSize:9,fontFamily:'monospace',color:fnColor,letterSpacing:'.05em'}}>{chord.fn}</span>
                       <span style={{fontSize:17,fontWeight:'bold',color:nc,fontFamily:'monospace',lineHeight:1}}>{chord.r}{CHORD_TYPES[chord.t]?.suffix}</span>
                       <span style={{fontSize:8,opacity:.45,fontFamily:'monospace'}}>{CHORD_TYPES[chord.t]?.label.split(' ')[0]}</span>
@@ -3036,7 +3113,7 @@ function ImproPage() {
             {IMPRO_PROGRESSIONS.map(prog=>(
               <button key={prog.id} onClick={()=>{setSelected(prog);setActiveChord(null);}}
                 style={{background:'rgba(240,235,224,0.025)',border:`0.5px solid rgba(240,235,224,0.1)`,borderRadius:4,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-                onMouseEnter={e=>{e.currentTarget.style.background=`${prog.color}08`;e.currentTarget.style.borderColor=`${prog.color}40`;}}
+                onMouseEnter={e=>{e.currentTarget.style.background=`${prog.color}`;e.currentTarget.style.borderColor=`${prog.color}`;}}
                 onMouseLeave={e=>{e.currentTarget.style.background='rgba(240,235,224,0.025)';e.currentTarget.style.borderColor='rgba(240,235,224,0.1)';}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                   <div>
@@ -3047,7 +3124,7 @@ function ImproPage() {
                 </div>
                 <div style={{display:'flex',gap:5,flexWrap:'wrap'}}>
                   {prog.chords.map((chord,ci)=>(
-                    <span key={ci} style={{fontSize:10,fontFamily:'monospace',color:NOTE_COLORS[chord.r]||prog.color,padding:'2px 6px',background:`${NOTE_COLORS[chord.r]||prog.color}15`,borderRadius:2}}>
+                    <span key={ci} style={{fontSize:10,fontFamily:'monospace',color:NOTE_COLORS[chord.r]||prog.color,padding:'2px 6px',background:`${NOTE_COLORS[chord.r]||prog.color}`,borderRadius:2}}>
                       {chord.r}{CHORD_TYPES[chord.t]?.suffix}
                     </span>
                   ))}
@@ -3226,7 +3303,7 @@ function TabsPage() {
                 </div>
               </div>
               <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:3}}>
-                <span style={{fontSize:11,fontFamily:'monospace',color:song.color,padding:'2px 8px',background:`${song.color}15`,border:`0.5px solid ${song.color}40`,borderRadius:2}}>{song.key}</span>
+                <span style={{fontSize:11,fontFamily:'monospace',color:song.color,padding:'2px 8px',background:`${song.color}`,border:`0.5px solid ${song.color}`,borderRadius:2}}>{song.key}</span>
                 <span style={{fontSize:9,opacity:.35,fontFamily:'monospace'}}>{song.bpm} BPM</span>
               </div>
             </div>
@@ -3238,7 +3315,7 @@ function TabsPage() {
                 const noteColor = NOTE_COLORS[chord.n] || '#C39BD3';
                 return (
                   <button key={ci} onClick={()=>handleChordClick(song.id, ci, chord)}
-                    style={{background:isPlaying?`${noteColor}25`:`${noteColor}10`,border:`0.5px solid ${isPlaying?noteColor:noteColor+'40'}`,borderRadius:3,padding:'.45rem .7rem',cursor:'pointer',transition:'all 0.15s',transform:isPlaying?'scale(1.08)':'scale(1)'}}>
+                    style={{background:isPlaying?`${noteColor}`:`${noteColor}`,border:`0.5px solid ${isPlaying?noteColor:noteColor+'40'}`,borderRadius:3,padding:'.45rem .7rem',cursor:'pointer',transition:'all 0.15s',transform:isPlaying?'scale(1.08)':'scale(1)'}}>
                     <div style={{fontSize:14,fontWeight:'bold',color:noteColor,fontFamily:'monospace',lineHeight:1}}>{chord.n}{cInfo?.suffix}</div>
                     <div style={{fontSize:8,opacity:.45,fontFamily:'monospace',marginTop:2}}>{cInfo?.label.split(' ')[0]}</div>
                   </button>
@@ -3288,58 +3365,54 @@ function BibliothequePage() {
 // ══════════════════════════════════════════════════════════════════════════════
 const MUSIC_SYMBOLS = [
   // CLÉS
-  { id:'cle-sol',    cat:'Clés',   name:'Clé de Sol',    symbol:'𝄞', color:'#8B5CF6',
-    desc:'Fixe la note Sol sur la 2e ligne. Clé la plus utilisée : piano (MD), violon, flûte.',
-    detail:'Chaque ligne et espace correspond à une note. La clé de Sol indique que la 2e ligne (en bas) est un Sol.' },
+  { id:'cle-sol',    cat:'Clés',   name:'Clé de Sol',     symbol:'𝄞', color:'#8B5CF6',
+    desc:"Fixe la note Sol sur la 2e ligne. Clé la plus utilisée : piano (MD), violon, flûte.",
+    detail:"Chaque ligne et espace correspond à une note. La clé de Sol indique que la 2e ligne (en bas) est un Sol." },
   { id:'cle-fa',     cat:'Clés',   name:'Clé de Fa',      symbol:'𝄢', color:'#8B5CF6',
-    desc:'Fixe la note Fa sur la 4e ligne. Instruments graves : piano (MG), violoncelle, contrebasse.',
-    detail:'La clé de Fa place le Fa sur la 4e ligne. Les notes y sont plus graves qu\'avec la clé de Sol.' },
-  { id:'cle-ut',     cat:'Clés',   name:"Clé d'Ut (Do)", symbol:'𝄡', color:'#8B5CF6',
+    desc:"Fixe la note Fa sur la 4e ligne. Instruments graves : piano (MG), violoncelle, contrebasse.",
+    detail:"La clé de Fa place le Fa sur la 4e ligne. Les notes y sont plus graves qu'avec la clé de Sol." },
+  { id:'cle-ut',     cat:'Clés',   name:"Clé d'Ut (Do)",  symbol:'𝄡', color:'#8B5CF6',
     desc:"Fixe le Do central. Variable selon la ligne. Utilisée par l'alto, le ténor.",
     detail:"Moins courante, on la retrouve surtout pour l'alto. Elle évite les lignes supplémentaires." },
-  
   // SILENCES
   { id:'sil-ronde',  cat:'Silences', name:'Silence de ronde',   symbol:'𝄻', color:'#06B6D4',
-    desc:'4 temps de silence. Rectangle plein suspendu sous la 4e ligne. Retiens : il pend.',
+    desc:"4 temps de silence. Rectangle plein suspendu sous la 4e ligne. Retiens : il pend.",
     detail:'Moyen mnémotechnique : il est "lourd", donc il tombe et se suspend sous la ligne.' },
   { id:'sil-blanche',cat:'Silences', name:'Silence de blanche',  symbol:'𝄼', color:'#06B6D4',
-    desc:'2 temps de silence. Rectangle plein posé sur la 3e ligne. Retiens : il repose.',
+    desc:"2 temps de silence. Rectangle plein posé sur la 3e ligne. Retiens : il repose.",
     detail:'Moyen mnémotechnique : il est "léger", donc il flotte et se pose sur la ligne.' },
   { id:'sil-noire',  cat:'Silences', name:'Silence de noire',    symbol:'𝄽', color:'#06B6D4',
     desc:'1 temps de silence. Ressemble à un "z" stylisé.',
-    detail:'1 temps — même durée que la noire. Très fréquent dans tous les styles musicaux.' },
+    detail:"1 temps — même durée que la noire. Très fréquent dans tous les styles musicaux." },
   { id:'sil-croche', cat:'Silences', name:'Silence de croche',   symbol:'𝄾', color:'#06B6D4',
     desc:'1/2 temps de silence. Ressemble à une virgule stylisée.',
     detail:"La moitié d'un temps. 2 silences de croche = 1 silence de noire." },
-  
   // VALEURS
-  { id:'ronde',      cat:'Valeurs', name:'Ronde',          symbol:'𝅝', color:'#10B981',
-    desc:'4 temps. Tête vide sans hampe. La note la plus longue en usage courant.',
-    detail:'En 4/4 : la ronde dure toute la mesure. 1 ronde = 2 blanches = 4 noires = 8 croches.' },
-  { id:'blanche',    cat:'Valeurs', name:'Blanche',         symbol:'𝅗𝅥', color:'#10B981',
-    desc:'2 temps. Tête vide avec hampe verticale. Très utilisée dans les hymnes et ballades.',
-    detail:'En 4/4 : la blanche dure la moitié de la mesure. 1 blanche = 2 noires = 4 croches.' },
+  { id:'ronde',      cat:'Valeurs', name:'Ronde',          symbol:'○', color:'#10B981',
+    desc:"4 temps. Tête vide sans hampe. La note la plus longue en usage courant.",
+    detail:"En 4/4 : la ronde dure toute la mesure. 1 ronde = 2 blanches = 4 noires = 8 croches." },
+  { id:'blanche',    cat:'Valeurs', name:'Blanche',         symbol:'d', color:'#10B981',
+    desc:"2 temps. Tête vide avec hampe verticale. Très utilisée dans les hymnes et ballades.",
+    detail:"En 4/4 : la blanche dure la moitié de la mesure. 1 blanche = 2 noires = 4 croches." },
   { id:'noire',      cat:'Valeurs', name:'Noire',           symbol:'♩', color:'#10B981',
-    desc:'1 temps. Tête pleine avec hampe. La valeur de référence du rythme (BPM).',
-    detail:'Le tempo en BPM compte les noires par minute. 90 BPM = 90 noires/minute.' },
+    desc:"1 temps. Tête pleine avec hampe. La valeur de référence du rythme (BPM).",
+    detail:"Le tempo en BPM compte les noires par minute. 90 BPM = 90 noires/minute." },
   { id:'croche',     cat:'Valeurs', name:'Croche',          symbol:'♪', color:'#10B981',
-    desc:'1/2 temps. Noire avec un crochet sur la hampe. Souvent regroupée par paires.',
-    detail:'2 croches = 1 noire. Reliées par une barre quand groupées. Base du swing en jazz.' },
+    desc:"1/2 temps. Noire avec un crochet sur la hampe. Souvent regroupée par paires.",
+    detail:"2 croches = 1 noire. Reliées par une barre quand groupées. Base du swing en jazz." },
   { id:'dcr',        cat:'Valeurs', name:'Double-croche',   symbol:'𝅘𝅥𝅯', color:'#10B981',
-    desc:'1/4 temps. 2 crochets sur la hampe. Passages rapides et ornements.',
+    desc:"1/4 temps. 2 crochets sur la hampe. Passages rapides et ornements.",
     detail:"4 doubles-croches = 1 noire. Très présentes dans les concertos et l'ornementation baroque." },
-  
   // CHIFFRAGE
   { id:'c44',        cat:'Chiffrage', name:'4/4 — Commun',  symbol:'𝄴', color:'#F59E0B',
-    desc:'4 temps par mesure, noire = 1 temps. Le plus fréquent : pop, jazz, classique.',
+    desc:"4 temps par mesure, noire = 1 temps. Le plus fréquent : pop, jazz, classique.",
     detail:"Chiffre du haut = nb de temps. Chiffre du bas = valeur d'1 temps (4 = noire, 8 = croche)." },
-  { id:'c34',        cat:'Chiffrage', name:'3/4 — Valse',   symbol:'¾', color:'#F59E0B',
-    desc:'3 temps par mesure. Rythme de la valse. Un-deux-trois, un-deux-trois.',
+  { id:'c34',        cat:'Chiffrage', name:'3/4 — Valse',   symbol:'3/4', color:'#F59E0B',
+    desc:"3 temps par mesure. Rythme de la valse. Un-deux-trois, un-deux-trois.",
     detail:"Valse, menuet, scherzo : tous en 3/4. L'accent fort tombe sur le premier temps." },
   { id:'c68',        cat:'Chiffrage', name:'6/8',           symbol:'6/8', color:'#F59E0B',
-    desc:'6 croches par mesure, ressenties en 2 temps à 3 croches chacun. Gigue, barcarolle.',
+    desc:"6 croches par mesure, ressenties en 2 temps à 3 croches chacun. Gigue, barcarolle.",
     detail:'6/8 ≠ 3/4. En 6/8 on ressent 2 grands temps balancés. C\'est le rythme "boiteux" du jazz.' },
-  
   // ALTÉRATIONS
   { id:'diese',      cat:'Altérations', name:'Dièse',       symbol:'♯', color:'#EF4444',
     desc:"Monte la note d'1 demi-ton. Do♯ est entre Do et Ré.",
@@ -3348,20 +3421,20 @@ const MUSIC_SYMBOLS = [
     desc:"Descend la note d'1 demi-ton. Si♭ est entre La et Si.",
     detail:"Essentiel pour les gammes mineures. Les armures (clé) utilisent dièses ou bémols." },
   { id:'becarre',    cat:'Altérations', name:'Bécarre',     symbol:'♮', color:'#EF4444',
-    desc:'Annule un dièse ou bémol précédent. Ramène à la hauteur naturelle.',
+    desc:"Annule un dièse ou bémol précédent. Ramène à la hauteur naturelle.",
     detail:"Si une note a été altérée dans la mesure ou l'armure, le bécarre l'annule localement." },
-  
   // NUANCES
-  { id:'p-doux',     cat:'Nuances', name:'Piano (p)',       symbol:'𝒑', color:'#A78BFA',
-    desc:'Jouer doucement. Échelle : ppp → pp → p → mp → mf → f → ff → fff.',
-    detail:'Les nuances viennent de l\'italien. "Piano" = doux. C\'est aussi pourquoi l\'instrument sappelle piano-forte.' },
-  { id:'f-fort',     cat:'Nuances', name:'Forte (f)',       symbol:'𝒇', color:'#A78BFA',
-    desc:'Jouer fort. mf = mezzoforte (moyennement fort). ff = fortissimo (très fort).',
+  { id:'p-doux',     cat:'Nuances', name:'Piano (p)',       symbol:'p', color:'#A78BFA',
+    desc:"Jouer doucement. Échelle : ppp → pp → p → mp → mf → f → ff → fff.",
+    detail:"Les nuances viennent de l'italien. \"Piano\" = doux. C'est aussi pourquoi l'instrument s'appelle piano-forte." },
+  { id:'f-fort',     cat:'Nuances', name:'Forte (f)',       symbol:'f', color:'#A78BFA',
+    desc:"Jouer fort. mf = mezzoforte (moyennement fort). ff = fortissimo (très fort).",
     detail:'"Forte" = fort en italien. Les nuances sont relatives : f après pp semble encore plus percutant.' },
   { id:'cresc',      cat:'Nuances', name:'Crescendo',       symbol:'<', color:'#A78BFA',
-    desc:'Progressivement plus fort. Représenté par un signe < ou un coin ouvert à droite.',
-    detail:'Le contraire est decrescendo (ou diminuendo). Ces variations de volume créent l\'émotion musicale.' },
+    desc:"Progressivement plus fort. Représenté par un signe < ou un coin ouvert à droite.",
+    detail:"Le contraire est decrescendo (ou diminuendo). Ces variations de volume créent l'émotion musicale." },
 ];
+
 function SymbolesMusique() {
   const [screen,   setScreen]   = useState('menu');
   const [activeCat,setActiveCat]= useState(null);
@@ -3406,9 +3479,9 @@ function SymbolesMusique() {
           {id:'ex', icon:'🎯',label:'Exercice',    sub:'Identifier les symboles', color:'#82E0AA'},
         ].map(b=>(
           <button key={b.id} onClick={()=>b.id==='ref'?setScreen('reference'):startExercice()}
-            style={{background:`${b.color}10`,border:`1.5px solid ${b.color}40`,borderRadius:14,padding:'1.25rem',cursor:'pointer',textAlign:'center',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${b.color}20`;e.currentTarget.style.borderColor=b.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 8px 20px ${b.color}30`;}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${b.color}10`;e.currentTarget.style.borderColor=`${b.color}40`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}>
+            style={{background:`${b.color}08`,border:`1.5px solid ${b.color}40`,borderRadius:14,padding:'1.25rem',cursor:'pointer',textAlign:'center',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${b.color}`;e.currentTarget.style.borderColor=b.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 8px 20px ${b.color}`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${b.color}`;e.currentTarget.style.borderColor=`${b.color}`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}>
             <span style={{fontSize:30}}>{b.icon}</span>
             <div style={{fontSize:14,fontWeight:'bold',color:b.color,fontFamily:'Georgia,serif'}}>{b.label}</div>
             <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{b.sub}</div>
@@ -3419,7 +3492,7 @@ function SymbolesMusique() {
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
         {CATS.map(cat=>{
           const syms=MUSIC_SYMBOLS.filter(s=>s.cat===cat),c=syms[0].color;
-          return(<div key={cat} style={{padding:'.9rem 1rem',background:`${c}08`,border:`1px solid ${c}25`,borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          return(<div key={cat} style={{padding:'.9rem 1rem',background:`${c}`,border:`1px solid ${c}`,borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
             <div>
               <div style={{fontSize:13,fontWeight:'bold',color:c,fontFamily:'Georgia,serif'}}>{cat}</div>
               <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',marginTop:2}}>{syms.length} symbole{syms.length>1?'s':''}</div>
@@ -3446,21 +3519,21 @@ function SymbolesMusique() {
           <button onClick={()=>setActiveCat(null)} style={{padding:'3px 10px',background:!activeCat?'rgba(255,255,255,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${!activeCat?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:!activeCat?'#fff':'rgba(255,255,255,0.4)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>Tous</button>
           {CATS.map(cat=>{
             const c=MUSIC_SYMBOLS.find(s=>s.cat===cat)?.color||'#fff';
-            return <button key={cat} onClick={()=>setActiveCat(cat===activeCat?null:cat)} style={{padding:'3px 10px',background:activeCat===cat?`${c}20`:'rgba(255,255,255,0.04)',border:`1px solid ${activeCat===cat?c:'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:activeCat===cat?c:'rgba(255,255,255,0.4)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>{cat}</button>;
+            return <button key={cat} onClick={()=>setActiveCat(cat===activeCat?null:cat)} style={{padding:'3px 10px',background:activeCat===cat?`${c}`:'rgba(255,255,255,0.04)',border:`1px solid ${activeCat===cat?c:'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:activeCat===cat?c:'rgba(255,255,255,0.4)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>{cat}</button>;
           })}
         </div>
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'1rem',display:'flex',flexDirection:'column',gap:8}}>
         {filtered.map(sym=>(
-          <div key={sym.id} style={{background:`${sym.color}08`,border:`1px solid ${sym.color}22`,borderRadius:12,padding:'1rem',display:'flex',gap:12,alignItems:'flex-start',animation:'fadeIn 0.25s ease'}}>
-            <div style={{width:50,height:50,borderRadius:10,background:`${sym.color}18`,border:`1.5px solid ${sym.color}45`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>{sym.symbol}</div>
+          <div key={sym.id} style={{background:`${sym.color}08`,border:`1px solid ${sym.color}30`,borderRadius:12,padding:'1rem',display:'flex',gap:12,alignItems:'flex-start',animation:'fadeIn 0.25s ease'}}>
+            <div style={{width:50,height:50,borderRadius:10,background:`${sym.color}08`,border:`1.5px solid ${sym.color}40`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>{sym.symbol}</div>
             <div style={{flex:1}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4}}>
                 <div style={{fontSize:14,fontWeight:'bold',color:sym.color,fontFamily:'Georgia,serif'}}>{sym.name}</div>
-                <span style={{fontSize:8,fontFamily:'monospace',color:sym.color,opacity:.6,padding:'2px 6px',background:`${sym.color}15`,borderRadius:6,flexShrink:0,marginLeft:6}}>{sym.cat}</span>
+                <span style={{fontSize:8,fontFamily:'monospace',color:sym.color,opacity:.6,padding:'2px 6px',background:`${sym.color}08`,borderRadius:6,flexShrink:0,marginLeft:6}}>{sym.cat}</span>
               </div>
               <p style={{fontSize:12,opacity:.72,margin:'0 0 .4rem',lineHeight:1.55,fontFamily:'Georgia,serif'}}>{sym.desc}</p>
-              <p style={{fontSize:11,opacity:.42,margin:0,lineHeight:1.5,fontFamily:'monospace',fontStyle:'italic',borderLeft:`2px solid ${sym.color}40`,paddingLeft:8}}>{sym.detail}</p>
+              <p style={{fontSize:11,opacity:.42,margin:0,lineHeight:1.5,fontFamily:'monospace',fontStyle:'italic',borderLeft:`2px solid ${sym.color}`,paddingLeft:8}}>{sym.detail}</p>
             </div>
           </div>
         ))}
@@ -3473,7 +3546,7 @@ function SymbolesMusique() {
   if(exDone) {
     const pct=Math.round((score.correct/score.total)*100),mc=pct>=85?'#82E0AA':pct>=60?'#F7DC6F':'#F1948A';
     return(<div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
-      <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+      <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}35`,borderRadius:14}}>
         <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
         <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
         <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
@@ -3505,7 +3578,7 @@ function SymbolesMusique() {
       </div>
       <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
         {/* Symbol to identify */}
-        <div style={{textAlign:'center',padding:'1.75rem 1rem',background:`${ex.color}10`,border:`1.5px solid ${ex.color}35`,borderRadius:16,animation:'fadeIn 0.3s ease'}}>
+        <div style={{textAlign:'center',padding:'1.75rem 1rem',background:`${ex.color}08`,border:`1.5px solid ${ex.color}40`,borderRadius:16,animation:'fadeIn 0.3s ease'}}>
           <div style={{fontSize:10,letterSpacing:'.15em',opacity:.4,fontFamily:'monospace',marginBottom:'1rem'}}>QUEL EST CE SYMBOLE ?</div>
           <div style={{fontSize:76,lineHeight:1.1,marginBottom:'1.25rem',filter:`drop-shadow(0 4px 14px ${ex.color}55)`}}>{ex.symbol}</div>
           {answered&&(<div style={{animation:'fadeIn 0.25s ease'}}>
@@ -3518,10 +3591,10 @@ function SymbolesMusique() {
           {options.map(opt=>{
             const isC=opt.id===ex.id,isU=userAns===opt.id;
             let bg='rgba(255,255,255,0.04)',border='rgba(255,255,255,0.12)',col='rgba(255,255,255,0.78)';
-            if(answered){if(isC){bg=`${opt.color}20`;border=opt.color;col=opt.color;}else if(isU){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}else{col='rgba(255,255,255,0.22)';}}
+            if(answered){if(isC){bg=`${opt.color}`;border=opt.color;col=opt.color;}else if(isU){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}else{col='rgba(255,255,255,0.22)';}}
             return(<button key={opt.id} onClick={()=>handleExAnswer(opt.id)} disabled={answered}
               style={{background:bg,border:`1.5px solid ${border}`,color:col,padding:'.85rem .5rem',borderRadius:12,cursor:answered?'default':'pointer',fontSize:11.5,fontFamily:'Georgia,serif',fontWeight:'bold',textAlign:'center',transition:'all 0.2s',lineHeight:1.4}}
-              onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${opt.color}12`;e.currentTarget.style.borderColor=`${opt.color}55`;}}}
+              onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${opt.color}`;e.currentTarget.style.borderColor=`${opt.color}`;}}}
               onMouseLeave={e=>{if(!answered){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.12)';}}}
             ><div style={{fontSize:22,marginBottom:4}}>{opt.symbol}</div>{opt.name}</button>);
           })}
@@ -3565,8 +3638,8 @@ function MusicStaff({ notes, currentIdx, feedback }) {
           const isPast    = ni<currentIdx;
           const fillCol   = isCurrent
             ? (feedback==='correct'?'#82E0AA':feedback==='wrong'?'#F1948A':col)
-            : isPast?`${col}70`:`${col}30`;
-          const borderCol = isCurrent?fillCol:isPast?`${col}90`:`${col}55`;
+            : isPast?`${col}`:`${col}`;
+          const borderCol = isCurrent?fillCol:isPast?`${col}`:`${col}`;
           // Ledger lines
           const needLedgerBelow = NOTE_POS[note]<0;
           const needLedgerAbove = NOTE_POS[note]>8;
@@ -3576,7 +3649,7 @@ function MusicStaff({ notes, currentIdx, feedback }) {
               {needMiddle&&<line x1={x-8} x2={x+8} y1={y} y2={y} stroke={col} strokeWidth="1.2"/>}
               {/* Note head */}
               <ellipse cx={x} cy={y} rx={noteR+.5} ry={noteR}
-                fill={isPast?fillCol:isCurrent?fillCol:`${col}20`}
+                fill={isPast?fillCol:isCurrent?fillCol:`${col}`}
                 stroke={borderCol} strokeWidth={isCurrent?2:1.2}
                 opacity={isPast||isCurrent?1:0.55}/>
               {/* Stem */}
@@ -3585,7 +3658,7 @@ function MusicStaff({ notes, currentIdx, feedback }) {
                 : <line x1={x+noteR} y1={y} x2={x+noteR} y2={y-26} stroke={borderCol} strokeWidth="1.2"/>}
               {/* Solfège below */}
               <text x={x} y={staffH+26} textAnchor="middle" fontSize={9}
-                fill={isCurrent?col:isPast?`${col}80`:`${col}45`}
+                fill={isCurrent?col:isPast?`${col}`:`${col}`}
                 fontFamily="monospace" fontWeight={isCurrent?'bold':'normal'}>
                 {SOLFEGE[note]||note}
               </text>
@@ -3665,8 +3738,8 @@ function LectureExercice() {
           return(
           <button key={m.id} onClick={()=>pickMelody(m)}
             style={{background:`${color}08`,border:`1px solid ${color}30`,borderRadius:12,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${color}15`;e.currentTarget.style.borderColor=color;e.currentTarget.style.transform='translateY(-1px)';}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${color}08`;e.currentTarget.style.borderColor=`${color}30`;e.currentTarget.style.transform='translateY(0)';}}>
+            onMouseEnter={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderColor=color;e.currentTarget.style.transform='translateY(-1px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderColor=`${color}`;e.currentTarget.style.transform='translateY(0)';}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <div style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',color,marginBottom:3}}>{m.title}</div>
               <span style={{fontSize:12,opacity:.6}}>{m.fixed?'📄':'🎲'}</span>
@@ -3725,7 +3798,7 @@ function LectureExercice() {
     const mc=pct>=90?'#82E0AA':pct>=70?'#85C1E9':pct>=50?'#F7DC6F':'#F1948A';
     return(
       <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
-        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}35`,borderRadius:14}}>
           <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS — {selMelody?.title}</div>
           <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
           <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
@@ -3798,7 +3871,7 @@ function LectureExercice() {
               const isW =feedback==='wrong'&&sol!==correctSolfege;
               return(
                 <button key={sol} onClick={()=>handleAnswer(sol)} disabled={!!feedback}
-                  style={{background:isOk?`${c}25`:`${c}10`,border:`0.5px solid ${isOk?c:isW?'rgba(255,255,255,0.06)':c+'45'}`,color:isOk?c:isW?'rgba(255,255,255,0.18)':c,padding:'.8rem .25rem',borderRadius:10,cursor:feedback?'default':'pointer',fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',transition:'all 0.2s',transform:isOk?'scale(1.06)':'scale(1)'}}>
+                  style={{background:isOk?`${c}`:`${c}`,border:`0.5px solid ${isOk?c:isW?'rgba(255,255,255,0.06)':c+'45'}`,color:isOk?c:isW?'rgba(255,255,255,0.18)':c,padding:'.8rem .25rem',borderRadius:10,cursor:feedback?'default':'pointer',fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',transition:'all 0.2s',transform:isOk?'scale(1.06)':'scale(1)'}}>
                   {sol}
                 </button>
               );
@@ -3809,14 +3882,348 @@ function LectureExercice() {
     </div>
   );
 }
+// ══════════════════════════════════════════════════════════════════════════════
+// ── BIBLIOTHÈQUE D'EXERCICES TECHNIQUES ──────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const TECH_EXERCISES = [
+  // ── INDÉPENDANCE DES MAINS ────────────────────────────────────────────────
+  { id:'ind-1', cat:'Indépendance', title:"Gamme + tenue", difficulty:1, color:'#8B5CF6',
+    duration:"5-10 min", goal:"Jouer une gamme à la main droite tout en tenant un accord à la main gauche.",
+    steps:[
+      "Main gauche : tenir Do-Mi-Sol (accord de Do) pendant tout l'exercice.",
+      "Main droite : jouer la gamme de Do sur 2 octaves, lentement.",
+      "Commence à 60 BPM, augmente de 5 BPM quand tu es à l'aise.",
+      "Variante : change l'accord de la MG (Fa-La-Do, Sol-Si-Ré...).",
+    ],
+    notation:"MG: Do Mi Sol (tenu)\nMD: Do Ré Mi Fa Sol La Si Do",
+    tip:"Si la MG lâche la tenue, recommence plus lentement. L'indépendance ne se force pas.",
+    inspiration:"Hanon — Exercice préparatoire n°1" },
+  { id:'ind-2', cat:'Indépendance', title:"Rythmes croisés 2 contre 3", difficulty:3, color:'#8B5CF6',
+    duration:"10-15 min", goal:"Jouer 2 notes à la MG pendant que la MD en joue 3.",
+    steps:[
+      "MG : Do (1) — Sol (2) — Do (3) en noires (3/4).",
+      "MD : Do (1) — Mi (2) — Sol (3) — Do (4) — Mi (5) — Sol (6) en croches (6/8 ressenti).",
+      "Commence par taper avec chaque main séparément sur une table.",
+      "Puis assemblez très lentement. Le premier Do des deux mains coincide.",
+      "Utilise un métronome : la pulsation commune est à la croche pointée.",
+    ],
+    notation:"MG: Do  .  Sol  .\nMD: Do Mi Sol  Do Mi Sol",
+    tip:"Ne jamais accélérer avant que les deux mains soient parfaitement coordonnées.",
+    inspiration:"Brahms — Intermezzo Op.118 n°2" },
+  { id:'ind-3', cat:'Indépendance', title:"Mélodie et accompagnement simultanés", difficulty:2, color:'#8B5CF6',
+    duration:"10 min", goal:"Jouer une mélodie forte et un accompagnement doux avec la même main.",
+    steps:[
+      "Main droite : le pouce joue l'accompagnement (accords légers), les doigts 3-4-5 jouent la mélodie.",
+      "La mélodie doit sonner plus fort (forte) et l'accompagnement plus doux (piano).",
+      "Exercice : Do-Mi-Sol arpège en MG. MD : Mi (faible)-Sol (faible)-Do (fort).",
+      "Imagine que les doigts 3-4-5 sont un pianiste différent du pouce.",
+    ],
+    notation:"MD mélodie : Mi  Sol  Do (fort)\nMD accomp. : Do Mi Sol (doux)",
+    tip:"Ferme les yeux et écoute. Si tu entends uniquement la mélodie, c'est bien.",
+    inspiration:"Chopin — Nocturne en Mi♭ majeur Op.9 n°2" },
+
+  // ── ARPÈGES ──────────────────────────────────────────────────────────────────
+  { id:'arp-1', cat:'Arpèges', title:"Arpège Do majeur - Position de base", difficulty:1, color:'#06B6D4',
+    duration:"5 min", goal:"Jouer un arpège Do-Mi-Sol-Do fluide avec le passage du pouce.",
+    steps:[
+      "Position de départ : pouce (1) sur Do, majeur (3) sur Mi, auriculaire (5) sur Sol.",
+      "Joue Do-Mi-Sol-Do : passe le pouce sous le majeur sur le 2e Sol.",
+      "Descendre : Do-Sol-Mi-Do avec le passage du 3 par-dessus le pouce.",
+      "Tempo départ : 60 BPM en croches. But : 120 BPM sans rupture.",
+    ],
+    notation:"MD: 1  3  5  1\n    Do Mi Sol Do",
+    tip:"Le secret est dans le passage du pouce : il doit glisser SOUS les doigts sans lever le coude.",
+    inspiration:"Hanon — Arpèges classiques" },
+  { id:'arp-2', cat:'Arpèges', title:"Arpège brisé - Pattern 1-5-3-5", difficulty:2, color:'#06B6D4',
+    duration:"8 min", goal:"Pattern d'accompagnement romantique avec arpège brisé.",
+    steps:[
+      "MG : sur Do-Mi-Sol, jouer Do (grave) - Sol - Mi - Sol en croches.",
+      "C'est le pattern de la Lettre à Elise (Beethoven).",
+      "Répète sur Fa-La-Do et Sol-Si-Ré.",
+      "Puis enchaîne : Do / Fa / Sol / Do (progression I-IV-V-I).",
+    ],
+    notation:"MG: Do5  Sol4  Mi4  Sol4\n     1    5    3    5",
+    tip:"Le poignet doit être souple. Si le poignet est raide, les notes ne seront pas égales.",
+    inspiration:"Beethoven — Pour Elise" },
+  { id:'arp-3', cat:'Arpèges', title:"Arpège à 2 octaves - Toutes gammes", difficulty:3, color:'#06B6D4',
+    duration:"15 min", goal:"Maîtriser les arpèges de toutes les gammes majeures sur 2 octaves.",
+    steps:[
+      "Commencer par Do majeur : Do-Mi-Sol-Do-Mi-Sol-Do (2 octaves, main droite).",
+      "Doigté MD : 1-2-3-1-2-3-4-5 (montée) / 5-4-3-2-1-3-2-1 (descente).",
+      "Même chose MG : 5-4-2-1-4-2-1 (montée) / 1-2-4-1-2-4-5 (descente).",
+      "Travailler ensuite Sol, Ré, La, Mi, Si (côté dièses) puis Fa, Si♭, Mi♭... (bémols).",
+    ],
+    notation:"MD: 1  2  3  1  2  3  4  5\n    Do Mi Sol Do Mi Sol Do",
+    tip:"Les passages de pouce doivent être imperceptibles à l'oreille. Si tu entends une rupture, ralentis.",
+    inspiration:"Hanon — Exercices pour le passage du pouce" },
+
+  // ── VITESSE ──────────────────────────────────────────────────────────────────
+  { id:'vit-1', cat:'Vitesse', title:"Gammes en doubles-croches", difficulty:2, color:'#F59E0B',
+    duration:"10 min", goal:"Développer la vélocité en gamme sur une octave.",
+    steps:[
+      "Gamme de Do, main droite, en doubles-croches à 80 BPM.",
+      "Méthode : jouer d'abord 4 fois plus lentement (noires à 80), puis accélérer progressivement.",
+      "Règle d'or : n'accélère que quand 10 répétitions consécutives sont parfaites.",
+      "Objectif final : doubles-croches à 120 BPM (= noires à 30 BPM) sans tension.",
+    ],
+    notation:"C D E F G A B C (doubles-croches)",
+    tip:"Si tu ressens une tension dans l'avant-bras, ARRÊTE et secoue les mains. La vitesse ne s'atteint pas par la force.",
+    inspiration:"Czerny — Études de vélocité Op.299" },
+  { id:'vit-2', cat:'Vitesse', title:"Chromatique rapide", difficulty:3, color:'#F59E0B',
+    duration:"8 min", goal:"Gamme chromatique (tous les demi-tons) pour développer la précision et la vitesse.",
+    steps:[
+      "Doigté MD gamme chromatique : 1-3-1-3-1-2-3-1-3-1-3-1-2 sur une octave.",
+      "Commence à 60 BPM en doubles-croches, vise 100 BPM.",
+      "MG en même temps : Do grave, tenir 4 temps. Puis Sol, Mi♭, La♭...",
+      "Exercice avancé : jouer la gamme chromatique en tierces (MD+MG en même temps).",
+    ],
+    notation:"Do Do# Ré Ré# Mi Fa Fa# Sol Sol# La La# Si Do",
+    tip:"Le passage du pouce sur les touches noires est différent. Entraîne-le séparément.",
+    inspiration:"Hanon — Exercice 31 (gamme chromatique)" },
+  { id:'vit-3', cat:'Vitesse', title:"Trilles et ornements", difficulty:3, color:'#F59E0B',
+    duration:"10 min", goal:"Maîtriser les trilles et ornements courants en musique classique.",
+    steps:[
+      "Trille simple : alterner rapidement Do-Ré avec doigts 1-2, puis 2-3, puis 3-4.",
+      "Commencer lentement (60 BPM, noires) et accélérer progressivement.",
+      "Mordant : jouer Do-Ré-Do en très rapide (appoggiature supérieure).",
+      "Groupe de 3 (gruppetto) : Mi-Fa-Mi-Ré-Mi en très rapide.",
+      "Contexte : le trille termine sur la note principale, pas sur la note de départ.",
+    ],
+    notation:"Trille: Do Ré Do Ré Do Ré Do (rapide)\nMordant: Do Ré Do (très rapide)",
+    tip:"Un bon trille commence par la note auxiliaire en musique baroque, par la note principale en musique classique/romantique.",
+    inspiration:"Chopin — Nocturne Op.27 n°2 (trilles ornementaux)" },
+
+  // ── PRÉCISION ────────────────────────────────────────────────────────────────
+  { id:'prec-1', cat:'Précision', title:"Staccato et legato alternatifs", difficulty:1, color:'#10B981',
+    duration:"5 min", goal:"Contrôler le toucher pour alterner staccato (détaché) et legato (lié).",
+    steps:[
+      "Gamme de Do : jouer les notes paires en staccato (court, rebondi) et impaires en legato.",
+      "Puis inverser : impaires staccato, paires legato.",
+      "Ensuite : groupes de 2 legato, groupes de 2 staccato (Do-Ré legato, Mi-Fa staccato...).",
+      "Écoute attentivement : le staccato doit avoir la même hauteur sonore que le legato.",
+    ],
+    notation:"MD: Do-Ré (legato) Mi-Fa (staccato) Sol-La (legato) Si-Do (staccato)",
+    tip:"Le staccato ne signifie pas 'jouer fort et rebondir'. Il signifie 'jouer court'. Le son peut être doux.",
+    inspiration:"Clementi — Sonatines Op.36" },
+  { id:'prec-2', cat:'Précision', title:"Octaves et accords", difficulty:2, color:'#10B981',
+    duration:"10 min", goal:"Jouer des octaves avec précision et régularité sans crispation.",
+    steps:[
+      "Main droite : octaves en noires sur la gamme de Do (Do-Do, Ré-Ré, Mi-Mi...).",
+      "Le poignet doit être souple : légère rotation du bras, pas de mouvement de haut en bas.",
+      "Commence piano (doux), puis augmente le volume sans changer la mécanique du geste.",
+      "Exercice avancé : octaves en triolets (3 octaves par temps) — le défi des grandes sonates.",
+    ],
+    notation:"Do8va - Ré8va - Mi8va - Fa8va...",
+    tip:"Si tu as de petites mains, ne tente pas les octaves trop tôt. Le poignet souple vient avec les années.",
+    inspiration:"Beethoven — Sonate \"Appassionata\" Op.57 (octaves en triolets)" },
+  { id:'prec-3', cat:'Précision', title:"Polyphonie à 2 voix", difficulty:3, color:'#10B981',
+    duration:"15 min", goal:"Jouer deux mélodies indépendantes avec la même main.",
+    steps:[
+      "Main droite : soprano (doigts 4-5) chante Do-Si-La-Sol. Tient chaque note.",
+      "Pendant ce temps, alto (doigts 1-2-3) joue Mi-Fa-Sol-Mi en croches.",
+      "Les notes de soprano doivent résonner longtemps, les notes d'alto peuvent être plus courtes.",
+      "Conseil : pratiquer chaque voix seule avant de les combiner.",
+    ],
+    notation:"Soprano: Do  Si  La  Sol (tenues)\nAlto:   Mi Fa Sol Mi  (courtes)",
+    tip:"Bach est le maître de la polyphonie. Écouter et analyser les inventions à 2 voix de Bach avant de les jouer.",
+    inspiration:"Bach — Invention à 2 voix n°1 en Do majeur BWV 772" },
+];
+
+const TECH_CATS = [...new Set(TECH_EXERCISES.map(e=>e.cat))];
+const DIFF_LABELS = {1:'Débutant 🟢', 2:'Intermédiaire 🟡', 3:'Avancé 🔴'};
+
+function BiblioTechnique() {
+  const [cat,        setCat]     = useState(null);
+  const [selEx,      setSelEx]   = useState(null);
+  const [diffFilter, setDiff]    = useState(null);
+  const [favs,       setFavs]    = useState(()=>{try{return JSON.parse(localStorage.getItem('cs_tech_favs')||'[]');}catch{return[];}});
+  const [showFavOnly,setFavOnly] = useState(false);
+  // Timer state
+  const [timerSecs,  setTimerSecs] = useState(0);
+  const [timerActive,setTimerActive] = useState(false);
+  const timerRef = useRef(null);
+
+  function toggleFav(id) {
+    setFavs(prev => {
+      const next = prev.includes(id) ? prev.filter(f=>f!==id) : [...prev, id];
+      try{localStorage.setItem('cs_tech_favs', JSON.stringify(next));}catch{}
+      return next;
+    });
+  }
+
+  function startTimer() { setTimerActive(true); setTimerSecs(0); }
+  function stopTimer()  { setTimerActive(false); clearInterval(timerRef.current); }
+  function resetTimer() { stopTimer(); setTimerSecs(0); }
+
+  useEffect(() => {
+    if (timerActive) {
+      timerRef.current = setInterval(() => setTimerSecs(s=>s+1), 1000);
+    } else {
+      clearInterval(timerRef.current);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [timerActive]);
+
+  const filtered = TECH_EXERCISES
+    .filter(e => !cat        || e.cat===cat)
+    .filter(e => !diffFilter || e.difficulty===diffFilter)
+    .filter(e => !showFavOnly || favs.includes(e.id));
+
+  const timerDisplay = `${String(Math.floor(timerSecs/60)).padStart(2,'0')}:${String(timerSecs%60).padStart(2,'0')}`;
+
+  // Detail view
+  if (selEx) {
+    const isFav = favs.includes(selEx.id);
+    return(
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',background:'rgba(13,11,30,0.8)',flexShrink:0,display:'flex',alignItems:'center',gap:8}}>
+          <button onClick={()=>{setSelEx(null);resetTimer();}} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,padding:'4px 8px',borderRadius:6,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}>← BIBLIOTHÈQUE</button>
+          <span style={{opacity:.2}}>|</span>
+          <span style={{fontSize:11,fontFamily:'monospace',color:selEx.color,letterSpacing:'.06em'}}>{selEx.cat.toUpperCase()}</span>
+          <button onClick={()=>toggleFav(selEx.id)} style={{marginLeft:'auto',background:'none',border:'none',cursor:'pointer',fontSize:18,padding:'2px'}} title={isFav?'Retirer des favoris':'Ajouter aux favoris'}>
+            {isFav?'⭐':'☆'}
+          </button>
+        </div>
+        <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+          {/* Header */}
+          <div style={{padding:'1.25rem',background:`${selEx.color}10`,border:`1.5px solid ${selEx.color}40`,borderRadius:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.65rem'}}>
+              <div style={{fontSize:18,fontWeight:'bold',color:selEx.color,fontFamily:'Georgia,serif',flex:1,marginRight:8}}>{selEx.title}</div>
+              <span style={{fontSize:10,fontFamily:'monospace',padding:'3px 8px',background:`${selEx.color}20`,border:`0.5px solid ${selEx.color}60`,borderRadius:8,color:selEx.color,whiteSpace:'nowrap'}}>{DIFF_LABELS[selEx.difficulty]}</span>
+            </div>
+            <div style={{display:'flex',gap:12,marginBottom:'.75rem'}}>
+              <span style={{fontSize:10,fontFamily:'monospace',color:'rgba(255,255,255,0.45)'}}>⏱ {selEx.duration}</span>
+              <span style={{fontSize:10,fontFamily:'monospace',color:'rgba(255,255,255,0.45)'}}>📚 {selEx.cat}</span>
+            </div>
+            <p style={{fontSize:13,opacity:.75,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{selEx.goal}</p>
+          </div>
+
+          {/* Timer intégré */}
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:10,color:selEx.color,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:4}}>CHRONOMÈTRE</div>
+                <div style={{fontSize:28,fontWeight:'bold',color:timerActive?selEx.color:'rgba(255,255,255,0.6)',fontFamily:'monospace',letterSpacing:'.05em'}}>{timerDisplay}</div>
+              </div>
+              <div style={{display:'flex',gap:7}}>
+                <button onClick={timerActive?stopTimer:startTimer}
+                  style={{padding:'.5rem .9rem',background:timerActive?'rgba(241,148,138,0.15)':'rgba(130,224,170,0.15)',border:`1.5px solid ${timerActive?'#F1948A':'#82E0AA'}`,color:timerActive?'#F1948A':'#82E0AA',borderRadius:9,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold'}}>
+                  {timerActive?'⏸ PAUSE':'▶ START'}
+                </button>
+                <button onClick={resetTimer}
+                  style={{padding:'.5rem .75rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:9,cursor:'pointer',fontSize:12,fontFamily:'monospace'}}>
+                  ↺
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Steps */}
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+            <div style={{fontSize:10,color:selEx.color,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.85rem'}}>ÉTAPES DE TRAVAIL</div>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {selEx.steps.map((step,i)=>(
+                <div key={i} style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+                  <div style={{width:22,height:22,borderRadius:'50%',background:`${selEx.color}20`,border:`1.5px solid ${selEx.color}60`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontFamily:'monospace',color:selEx.color,fontWeight:'bold',flexShrink:0,marginTop:1}}>{i+1}</div>
+                  <p style={{fontSize:13,opacity:.75,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>{step}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Notation */}
+          <div style={{padding:'1rem',background:'rgba(0,0,0,0.25)',border:'1px solid rgba(255,255,255,0.1)',borderRadius:12,fontFamily:'monospace'}}>
+            <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',letterSpacing:'.12em',marginBottom:'.65rem'}}>NOTATION</div>
+            {selEx.notation.split('\n').map((line,i)=>(
+              <div key={i} style={{fontSize:12,color:'rgba(255,255,255,0.72)',lineHeight:1.8,letterSpacing:'.04em'}}>{line}</div>
+            ))}
+          </div>
+
+          {/* Tip */}
+          <div style={{padding:'.85rem',background:'rgba(247,220,111,0.07)',border:'1px solid rgba(247,220,111,0.22)',borderRadius:12,display:'flex',gap:10}}>
+            <span style={{fontSize:18,flexShrink:0}}>💡</span>
+            <div>
+              <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.35rem'}}>CONSEIL DE PRATIQUE</div>
+              <p style={{fontSize:12,color:'rgba(255,255,255,0.7)',lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{selEx.tip}</p>
+            </div>
+          </div>
+
+          {/* Inspiration */}
+          <div style={{padding:'.75rem 1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:10,display:'flex',gap:8,alignItems:'center'}}>
+            <span style={{fontSize:14}}>🎼</span>
+            <div>
+              <div style={{fontSize:9,color:'rgba(255,255,255,0.35)',fontFamily:'monospace',letterSpacing:'.08em',marginBottom:2}}>INSPIRÉ DE</div>
+              <div style={{fontSize:12,color:'rgba(255,255,255,0.6)',fontFamily:'Georgia,serif',fontStyle:'italic'}}>{selEx.inspiration}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // List view
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Filters */}
+      <div style={{padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <div style={{display:'flex',gap:5,overflowX:'auto',marginBottom:'.4rem',alignItems:'center'}}>
+          <button onClick={()=>setCat(null)} style={{padding:'3px 10px',background:!cat?'rgba(255,255,255,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${!cat?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:!cat?'#fff':'rgba(255,255,255,0.45)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>Tous</button>
+          {TECH_CATS.map(c=>{
+            const col=TECH_EXERCISES.find(e=>e.cat===c)?.color||'#fff';
+            return <button key={c} onClick={()=>setCat(cat===c?null:c)} style={{padding:'3px 10px',background:cat===c?`${col}20`:'rgba(255,255,255,0.04)',border:`1px solid ${cat===c?col:'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:cat===c?col:'rgba(255,255,255,0.45)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>{c}</button>;
+          })}
+          <button onClick={()=>setFavOnly(v=>!v)} style={{padding:'3px 10px',background:showFavOnly?'rgba(247,220,111,0.2)':'rgba(255,255,255,0.04)',border:`1px solid ${showFavOnly?'#F7DC6F':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:showFavOnly?'#F7DC6F':'rgba(255,255,255,0.45)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,marginLeft:'auto',transition:'all 0.2s'}}>
+            ⭐ Favoris {favs.length>0&&`(${favs.length})`}
+          </button>
+        </div>
+        <div style={{display:'flex',gap:5}}>
+          {[null,1,2,3].map(d=>(
+            <button key={d} onClick={()=>setDiff(diffFilter===d?null:d)} style={{padding:'3px 9px',background:diffFilter===d?'rgba(255,255,255,0.12)':'rgba(255,255,255,0.04)',border:`1px solid ${diffFilter===d?'rgba(255,255,255,0.35)':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:diffFilter===d?'#fff':'rgba(255,255,255,0.4)',fontSize:9,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>
+              {d===null?'Tous niveaux':DIFF_LABELS[d]}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'1rem',display:'flex',flexDirection:'column',gap:8}}>
+        {filtered.length===0 && (
+          <div style={{textAlign:'center',padding:'2rem',opacity:.4,fontFamily:'monospace',fontSize:12}}>
+            {showFavOnly?'Aucun favori. Ouvre un exercice et clique sur ☆ pour l\'ajouter.':'Aucun exercice trouvé.'}
+          </div>
+        )}
+        {filtered.map(ex=>{
+          const isFav = favs.includes(ex.id);
+          return(
+          <button key={ex.id} onClick={()=>{setSelEx(ex);resetTimer();}}
+            style={{background:`${ex.color}08`,border:`1px solid ${ex.color}30`,borderRadius:12,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${ex.color}15`;e.currentTarget.style.borderColor=ex.color;e.currentTarget.style.transform='translateX(3px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${ex.color}08`;e.currentTarget.style.borderColor=`${ex.color}30`;e.currentTarget.style.transform='translateX(0)';}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:5}}>
+              <div style={{fontSize:14,fontWeight:'bold',color:ex.color,fontFamily:'Georgia,serif'}}>{ex.title}</div>
+              <div style={{display:'flex',gap:5,flexShrink:0,marginLeft:8,alignItems:'center'}}>
+                {isFav&&<span style={{fontSize:12}}>⭐</span>}
+                <span style={{fontSize:9,fontFamily:'monospace',padding:'2px 6px',background:`${ex.color}15`,border:`0.5px solid ${ex.color}40`,borderRadius:6,color:ex.color}}>{ex.cat}</span>
+                <span style={{fontSize:9,fontFamily:'monospace',padding:'2px 6px',background:'rgba(255,255,255,0.05)',borderRadius:6,color:'rgba(255,255,255,0.4)'}}>{DIFF_LABELS[ex.difficulty]}</span>
+              </div>
+            </div>
+            <p style={{fontSize:12,opacity:.6,margin:'0 0 .4rem',lineHeight:1.5,fontFamily:'Georgia,serif'}}>{ex.goal}</p>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace'}}>⏱ {ex.duration} · {ex.steps.length} étapes</div>
+          </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 function ExercicesPage() {
   const [sub, setSub] = useState(null);
 
   const MODS = [
-    {id:'flashcards',   icon:'🎯', title:"Dictée d'accords",     subtitle:'JOUER LES ACCORDS AU PIANO',   color:'#F1948A'},
-    {id:'cycle',        icon:'🔄', title:'Cycle des quintes',    subtitle:'12 TONALITÉS',                 color:'#F7DC6F'},
-    {id:'transposition',icon:'↔', title:'Transposition',        subtitle:'CHANGER DE TONALITÉ',           color:'#85C1E9'},
-    {id:'impro',        icon:'✨', title:'Improvisation guidée', subtitle:'GAMME · STYLE · PROGRESSION',  color:'#A78BFA'},
+    {id:'flashcards',   icon:'🎯', title:"Dictée d'accords",      subtitle:'JOUER LES ACCORDS AU PIANO',    color:'#F1948A'},
+    {id:'cycle',        icon:'🔄', title:'Cycle des quintes',     subtitle:'12 TONALITÉS',                  color:'#F7DC6F'},
+    {id:'transposition',icon:'↔', title:'Transposition',         subtitle:'CHANGER DE TONALITÉ',            color:'#85C1E9'},
+    {id:'impro',        icon:'✨', title:'Improvisation guidée',  subtitle:'GAMME · STYLE · PROGRESSION',   color:'#A78BFA'},
+    {id:'biblio',       icon:'📋', title:'Bibliothèque technique',subtitle:'HANON · ARPÈGES · VÉLOCITÉ',    color:'#10B981'},
   ];
 
   if (sub) {
@@ -3833,6 +4240,7 @@ function ExercicesPage() {
           {sub==='cycle'        && <CycleQuintesExercice/>}
           {sub==='transposition'&& <TranspositionExercice/>}
           {sub==='impro'        && <ImprovisationGuidee/>}
+          {sub==='biblio'       && <BiblioTechnique/>}
         </div>
       </div>
     );
@@ -3847,12 +4255,12 @@ function ExercicesPage() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
         {MODS.map(m=>(
           <button key={m.id} onClick={()=>setSub(m.id)}
-            style={{background:`${m.color}08`,border:`1px solid ${m.color}40`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}40`;e.currentTarget.style.transform='translateY(0)';}}>
+            style={{background:`${m.color}08`,border:`1px solid ${m.color}`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <span style={{fontSize:26}}>{m.icon}</span>
-              <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
+              <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
             </div>
             <div>
               <div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.color,fontFamily:'Georgia,serif'}}>{m.title}</div>
@@ -4017,7 +4425,7 @@ function DicteeAccords() {
           {types.map(t=>{
             const on=selected.has(t.id);
             return(<button key={t.id} onClick={()=>setSelected(prev=>{const n=new Set(prev);if(n.has(t.id)){if(n.size>1)n.delete(t.id);}else n.add(t.id);return n;})}
-              style={{background:on?`${t.color}18`:'rgba(255,255,255,0.03)',border:`1.5px solid ${on?t.color:'rgba(255,255,255,0.1)'}`,borderRadius:10,padding:'.65rem .75rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8}}>
+              style={{background:on?`${t.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${on?t.color:'rgba(255,255,255,0.1)'}`,borderRadius:10,padding:'.65rem .75rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8}}>
               <div style={{width:14,height:14,borderRadius:3,background:on?t.color:'rgba(255,255,255,0.1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                 {on&&<span style={{fontSize:9,color:'#0D0B1E',fontWeight:'bold'}}>✓</span>}
               </div>
@@ -4101,7 +4509,7 @@ function DicteeAccords() {
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             {/* Metronome pulse dot */}
-            <div style={{width:10,height:10,borderRadius:'50%',background:pulse?timerColor:'rgba(255,255,255,0.2)',transition:'background 0.1s',boxShadow:pulse?`0 0 8px ${timerColor}80`:'none'}}/>
+            <div style={{width:10,height:10,borderRadius:'50%',background:pulse?timerColor:'rgba(255,255,255,0.2)',transition:'background 0.1s',boxShadow:pulse?`0 0 8px ${timerColor}`:'none'}}/>
             <span style={{fontSize:10,fontFamily:'monospace',opacity:.5}}>{loopMode?'BOUCLE ∞':(`${idx+1}/${cards.length}`)}</span>
           </div>
           <div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -4110,18 +4518,18 @@ function DicteeAccords() {
           </div>
         </div>
         <div style={{height:5,background:'rgba(255,255,255,0.08)',borderRadius:4,overflow:'hidden'}}>
-          <div style={{height:'100%',width:`${timerPct}%`,background:timerColor,borderRadius:4,transition:'width 1s linear',boxShadow:`0 0 6px ${timerColor}60`}}/>
+          <div style={{height:'100%',width:`${timerPct}%`,background:timerColor,borderRadius:4,transition:'width 1s linear',boxShadow:`0 0 6px ${timerColor}`}}/>
         </div>
       </div>
 
       <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
         {/* Card */}
-        <div style={{textAlign:'center',padding:'1.75rem',background:`${nc}10`,border:`1.5px solid ${nc}40`,borderRadius:16,position:'relative',overflow:'hidden'}}>
+        <div style={{textAlign:'center',padding:'1.75rem',background:`${nc}10`,border:`1.5px solid ${nc}`,borderRadius:16,position:'relative',overflow:'hidden'}}>
           <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'1rem'}}>JOUE CET ACCORD SUR TON PIANO</div>
           <div style={{fontSize:62,fontWeight:'bold',color:nc,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:6}}>{card.name}</div>
           <div style={{fontSize:13,opacity:.55,fontFamily:'monospace',marginBottom:'1.25rem'}}>{card.label}</div>
           <button onClick={playCurrentChord}
-            style={{background:`${nc}18`,border:`1px solid ${nc}60`,color:nc,padding:'.45rem 1.1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em'}}>
+            style={{background:`${nc}10`,border:`1px solid ${nc}`,color:nc,padding:'.45rem 1.1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.08em'}}>
             🔊 ÉCOUTER
           </button>
         </div>
@@ -4136,7 +4544,7 @@ function DicteeAccords() {
         <div style={{display:'flex',gap:6,justifyContent:'center'}}>
           {CHORD_TYPES[card.type].formula.map(f=>{
             const n=CHROMATIC[(ri2+f)%12], c=NOTE_COLORS[n]||nc;
-            return <div key={f} style={{width:40,height:40,borderRadius:'50%',background:`${c}20`,border:`1.5px solid ${c}60`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:'bold',color:c,fontFamily:'monospace'}}>{n}</div>;
+            return <div key={f} style={{width:40,height:40,borderRadius:'50%',background:`${c}`,border:`1.5px solid ${c}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:'bold',color:c,fontFamily:'monospace'}}>{n}</div>;
           })}
         </div>
 
@@ -4184,16 +4592,16 @@ function AccordsLibrary(){
     <div style={{position:'relative',zIndex:1,textAlign:'center'}}>
       <div style={{fontSize:cName?90:60,fontWeight:'bold',color:cName?color:'rgba(240,235,224,0.1)',transition:'all 0.5s cubic-bezier(0.34,1.56,0.64,1)',lineHeight:1,marginBottom:'.5rem',minHeight:95,display:'flex',alignItems:'center',justifyContent:'center'}}>{cName||'—'}</div>
       <p style={{fontSize:11,letterSpacing:'.2em',opacity:.35,marginBottom:'1.25rem',fontFamily:'monospace',textTransform:'uppercase'}}>{selType?CHORD_TYPES[selType].label:'Sélectionnez un accord pour commencer'}</p>
-      {cNotes&&(<div style={{marginBottom:'1.25rem',animation:'fadeIn 0.4s ease forwards'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>NOTES</div><div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}>{inversions[inv].map((note,i)=>(<div key={`n${i}`} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:5}}><div style={{width:46,height:46,borderRadius:'50%',border:`1px solid ${NOTE_COLORS[note]}50`,background:`${NOTE_COLORS[note]}14`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:'bold',color:NOTE_COLORS[note],fontFamily:'monospace'}}>{note}</div><div style={{fontSize:9,opacity:.3,fontFamily:'monospace'}}>{i===0?'BASSE':i===cNotes.length-1?'AIGU':''}</div></div>))}</div></div>)}
+      {cNotes&&(<div style={{marginBottom:'1.25rem',animation:'fadeIn 0.4s ease forwards'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>NOTES</div><div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}>{inversions[inv].map((note,i)=>(<div key={`n${i}`} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:5}}><div style={{width:46,height:46,borderRadius:'50%',border:`1px solid ${NOTE_COLORS[note]}`,background:`${NOTE_COLORS[note]}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:'bold',color:NOTE_COLORS[note],fontFamily:'monospace'}}>{note}</div><div style={{fontSize:9,opacity:.3,fontFamily:'monospace'}}>{i===0?'BASSE':i===cNotes.length-1?'AIGU':''}</div></div>))}</div></div>)}
       <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap',marginBottom:'1.5rem'}}>
-        <button onClick={()=>{setModalStep('type');setShowModal(true);}} style={{background:'transparent',border:`1px solid ${cName?color:'rgba(240,235,224,0.2)'}`,color:cName?color:'#f0ebe0',padding:'.75rem 1.5rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}} onMouseEnter={e=>{e.currentTarget.style.background=`${color}14`;e.currentTarget.style.transform='translateY(-1px)';}} onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.transform='translateY(0)';}}>
+        <button onClick={()=>{setModalStep('type');setShowModal(true);}} style={{background:'transparent',border:`1px solid ${cName?color:'rgba(240,235,224,0.2)'}`,color:cName?color:'#f0ebe0',padding:'.75rem 1.5rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}} onMouseEnter={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.transform='translateY(-1px)';}} onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.transform='translateY(0)';}}>
           {cName?"Changer d'accord":'Choisir un accord'}
         </button>
-        {cName&&(<button onClick={()=>setShowPiano(v=>!v)} style={{background:showPiano?`${color}18`:'transparent',border:`1px solid ${showPiano?color:'rgba(240,235,224,0.2)'}`,color:showPiano?color:'rgba(240,235,224,0.6)',padding:'.75rem 1.1rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}}>🎹 Clavier</button>)}
+        {cName&&(<button onClick={()=>setShowPiano(v=>!v)} style={{background:showPiano?`${color}`:'transparent',border:`1px solid ${showPiano?color:'rgba(240,235,224,0.2)'}`,color:showPiano?color:'rgba(240,235,224,0.6)',padding:'.75rem 1.1rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}}>🎹 Clavier</button>)}
         <button onClick={()=>setShowImpro(true)} style={{background:'rgba(247,220,111,0.08)',border:'1px solid rgba(247,220,111,0.35)',color:'#F7DC6F',padding:'.75rem 1.1rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}} onMouseEnter={e=>e.currentTarget.style.background='rgba(247,220,111,0.18)'} onMouseLeave={e=>e.currentTarget.style.background='rgba(247,220,111,0.08)'}>🎵 Enchaînements</button>
       </div>
       {showPiano&&cNotes&&(<div style={{marginBottom:'1.5rem',padding:'1.25rem 1rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:4,animation:'fadeIn 0.3s ease forwards',overflowX:'auto'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.75rem'}}>CLAVIER</div><PianoKeyboard activeAbsIndices={aIdx} color={color}/></div>)}
-      {inversions&&(<div style={{animation:'fadeIn 0.4s ease 0.15s both'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>RENVERSEMENTS</div><div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>{inversions.map((iv,i)=>(<button key={`inv${i}`} onClick={()=>setInv(i)} style={{background:inv===i?`${color}18`:'transparent',border:`0.5px solid ${inv===i?color:'rgba(240,235,224,0.15)'}`,color:inv===i?color:'rgba(240,235,224,0.45)',padding:'.5rem .85rem',borderRadius:2,cursor:'pointer',fontFamily:'monospace',fontSize:10,transition:'all 0.2s ease',display:'flex',flexDirection:'column',alignItems:'center',gap:3}} onMouseEnter={e=>{if(inv!==i)e.currentTarget.style.borderColor=`${color}60`;}} onMouseLeave={e=>{if(inv!==i)e.currentTarget.style.borderColor='rgba(240,235,224,0.15)';}}>
+      {inversions&&(<div style={{animation:'fadeIn 0.4s ease 0.15s both'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>RENVERSEMENTS</div><div style={{display:'flex',gap:8,justifyContent:'center',flexWrap:'wrap'}}>{inversions.map((iv,i)=>(<button key={`inv${i}`} onClick={()=>setInv(i)} style={{background:inv===i?`${color}`:'transparent',border:`0.5px solid ${inv===i?color:'rgba(240,235,224,0.15)'}`,color:inv===i?color:'rgba(240,235,224,0.45)',padding:'.5rem .85rem',borderRadius:2,cursor:'pointer',fontFamily:'monospace',fontSize:10,transition:'all 0.2s ease',display:'flex',flexDirection:'column',alignItems:'center',gap:3}} onMouseEnter={e=>{if(inv!==i)e.currentTarget.style.borderColor=`${color}`;}} onMouseLeave={e=>{if(inv!==i)e.currentTarget.style.borderColor='rgba(240,235,224,0.15)';}}>
         <span>{INVERSION_NAMES[i]}</span><span style={{opacity:.5,fontSize:9}}>{iv.join(' – ')}</span>
       </button>))}</div></div>)}
     </div>
@@ -4208,7 +4616,7 @@ function AccordsLibrary(){
           <span style={{color:isA?'#C39BD3':'rgba(240,235,224,0.2)',fontSize:18}}>›</span>
         </button>);})}
         </div>)}
-        {modalStep==='root'&&(<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,padding:'1.25rem',overflowY:'auto'}}>{ROOT_NOTES.map(root=>{const c=NOTE_COLORS[root]||'#C39BD3',ri=CHROMATIC.indexOf(root),prev=CHORD_TYPES[selType].formula.map(i=>CHROMATIC[(ri+i)%12]),isA=selRoot===root;return(<button key={root} onClick={()=>handleChordSelect(root)} style={{background:isA?`${c}20`:'rgba(240,235,224,0.03)',border:`0.5px solid ${isA?c:'rgba(240,235,224,0.1)'}`,color:isA?c:'rgba(240,235,224,0.8)',padding:'1rem .5rem',borderRadius:2,cursor:'pointer',transition:'all 0.2s ease',display:'flex',flexDirection:'column',alignItems:'center',gap:6}} onMouseEnter={e=>{e.currentTarget.style.background=`${c}18`;e.currentTarget.style.borderColor=`${c}80`;e.currentTarget.style.color=c;}} onMouseLeave={e=>{if(!isA){e.currentTarget.style.background='rgba(240,235,224,0.03)';e.currentTarget.style.borderColor='rgba(240,235,224,0.1)';e.currentTarget.style.color='rgba(240,235,224,0.8)';}}}>
+        {modalStep==='root'&&(<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,padding:'1.25rem',overflowY:'auto'}}>{ROOT_NOTES.map(root=>{const c=NOTE_COLORS[root]||'#C39BD3',ri=CHROMATIC.indexOf(root),prev=CHORD_TYPES[selType].formula.map(i=>CHROMATIC[(ri+i)%12]),isA=selRoot===root;return(<button key={root} onClick={()=>handleChordSelect(root)} style={{background:isA?`${c}`:'rgba(240,235,224,0.03)',border:`0.5px solid ${isA?c:'rgba(240,235,224,0.1)'}`,color:isA?c:'rgba(240,235,224,0.8)',padding:'1rem .5rem',borderRadius:2,cursor:'pointer',transition:'all 0.2s ease',display:'flex',flexDirection:'column',alignItems:'center',gap:6}} onMouseEnter={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.borderColor=`${c}`;e.currentTarget.style.color=c;}} onMouseLeave={e=>{if(!isA){e.currentTarget.style.background='rgba(240,235,224,0.03)';e.currentTarget.style.borderColor='rgba(240,235,224,0.1)';e.currentTarget.style.color='rgba(240,235,224,0.8)';}}}>
           <span style={{fontSize:22,fontWeight:'bold'}}>{root}</span><span style={{fontSize:9,opacity:.45,fontFamily:'monospace'}}>{prev.join('·')}</span>
         </button>);})}
         </div>)}
@@ -4403,7 +4811,7 @@ function CompositionAssistee() {
       {/* Steps indicator */}
       <div style={{display:'flex',gap:6,marginBottom:'1.5rem'}}>
         {[['key','① Tonalité'],['emotion','② Émotion'],['build','③ Progression']].map(([s,label])=>(
-          <button key={s} onClick={()=>setStep(s)} style={{flex:1,padding:'.45rem .25rem',background:step===s?`${color}20`:'rgba(255,255,255,0.04)',border:`1px solid ${step===s?color:'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:step===s?color:'rgba(255,255,255,0.4)',letterSpacing:'.04em',transition:'all 0.2s',textAlign:'center'}}>
+          <button key={s} onClick={()=>setStep(s)} style={{flex:1,padding:'.45rem .25rem',background:step===s?`${color}`:'rgba(255,255,255,0.04)',border:`1px solid ${step===s?color:'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:step===s?color:'rgba(255,255,255,0.4)',letterSpacing:'.04em',transition:'all 0.2s',textAlign:'center'}}>
             {label}
           </button>
         ))}
@@ -4416,7 +4824,7 @@ function CompositionAssistee() {
             <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>MODE</div>
             <div style={{display:'flex',gap:8}}>
               {['majeur','mineur'].map(m=>(
-                <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:'.7rem',background:mode===m?`${color}20`:'rgba(255,255,255,0.04)',border:`1px solid ${mode===m?color:'rgba(255,255,255,0.1)'}`,borderRadius:12,cursor:'pointer',color:mode===m?color:'rgba(255,255,255,0.5)',fontFamily:'monospace',fontSize:12,fontWeight:'bold',letterSpacing:'.06em',transition:'all 0.2s',textTransform:'uppercase'}}>
+                <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:'.7rem',background:mode===m?`${color}`:'rgba(255,255,255,0.04)',border:`1px solid ${mode===m?color:'rgba(255,255,255,0.1)'}`,borderRadius:12,cursor:'pointer',color:mode===m?color:'rgba(255,255,255,0.5)',fontFamily:'monospace',fontSize:12,fontWeight:'bold',letterSpacing:'.06em',transition:'all 0.2s',textTransform:'uppercase'}}>
                   {m==='majeur'?'☀ MAJEUR':'🌙 MINEUR'}
                 </button>
               ))}
@@ -4427,7 +4835,7 @@ function CompositionAssistee() {
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
               {KEYS.map(k=>{
                 const nc=NOTE_COLORS[k]||'#8B5CF6',sel=key===k;
-                return <button key={k} onClick={()=>setKey(k)} style={{background:sel?`${nc}25`:`${nc}10`,border:`1.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.6rem .25rem',borderRadius:10,cursor:'pointer',fontSize:14,fontWeight:sel?'bold':'normal',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 4px 14px ${nc}40`:'none'}}>{k}</button>;
+                return <button key={k} onClick={()=>setKey(k)} style={{background:sel?`${nc}`:`${nc}`,border:`1.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.6rem .25rem',borderRadius:10,cursor:'pointer',fontSize:14,fontWeight:sel?'bold':'normal',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 4px 14px ${nc}`:'none'}}>{k}</button>;
               })}
             </div>
           </div>
@@ -4438,7 +4846,7 @@ function CompositionAssistee() {
               {scale.map((d,i)=>{
                 const root=CHROMATIC[(ri+d.semi)%12];
                 const name=root+(CHORD_TYPES[d.type]?.suffix||'');
-                return(<div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'.5rem .6rem',background:`${d.color}12`,border:`0.5px solid ${d.color}40`,borderRadius:8}}>
+                return(<div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'.5rem .6rem',background:`${d.color}08`,border:`0.5px solid ${d.color}30`,borderRadius:8}}>
                   <span style={{fontSize:9,color:d.color,fontFamily:'monospace',opacity:.7}}>{d.deg}</span>
                   <span style={{fontSize:13,fontWeight:'bold',color:d.color,fontFamily:'monospace'}}>{name}</span>
                   <span style={{fontSize:8,opacity:.4,fontFamily:'monospace'}}>{d.fn}</span>
@@ -4446,7 +4854,7 @@ function CompositionAssistee() {
               })}
             </div>
           </div>
-          <button onClick={()=>setStep('emotion')} style={{width:'100%',padding:'.9rem',background:`${color}18`,border:`1.5px solid ${color}`,color,borderRadius:12,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',transition:'all 0.2s'}}>
+          <button onClick={()=>setStep('emotion')} style={{width:'100%',padding:'.9rem',background:`${color}08`,border:`1.5px solid ${color}`,color,borderRadius:12,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',transition:'all 0.2s'}}>
             CHOISIR L'ÉMOTION →
           </button>
         </div>
@@ -4458,14 +4866,14 @@ function CompositionAssistee() {
           <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.9rem'}}>QUELLE ÉMOTION VEUX-TU TRANSMETTRE ?</div>
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {EMOTION_PROGS.map(em=>(
-              <button key={em.label} onClick={()=>applyEmotion(em)} style={{background:emotion?.label===em.label?`${em.color}20`:'rgba(255,255,255,0.04)',border:`1.5px solid ${emotion?.label===em.label?em.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.9rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <button key={em.label} onClick={()=>applyEmotion(em)} style={{background:emotion?.label===em.label?`${em.color}`:'rgba(255,255,255,0.04)',border:`1.5px solid ${emotion?.label===em.label?em.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.9rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <div>
                   <div style={{fontSize:14,fontWeight:'bold',color:em.color,fontFamily:'Georgia,serif',marginBottom:3}}>{em.label}</div>
                   <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{em.desc}</div>
                 </div>
                 <div style={{display:'flex',gap:5,flexShrink:0,marginLeft:8}}>
                   {em.degs.map((di,i)=>(
-                    <span key={i} style={{fontSize:10,fontFamily:'monospace',color:scale[di]?.color,padding:'2px 5px',background:`${scale[di]?.color}15`,borderRadius:5}}>
+                    <span key={i} style={{fontSize:10,fontFamily:'monospace',color:scale[di]?.color,padding:'2px 5px',background:`${scale[di]?.color}`,borderRadius:5}}>
                       {getChordName(di)}
                     </span>
                   ))}
@@ -4480,7 +4888,7 @@ function CompositionAssistee() {
       {step==='build' && prog.length>0 && (
         <div style={{animation:'fadeIn 0.3s ease'}}>
           {emotion && (
-            <div style={{padding:'.75rem',background:`${emotion.color}12`,border:`1px solid ${emotion.color}30`,borderRadius:10,marginBottom:'1.25rem'}}>
+            <div style={{padding:'.75rem',background:`${emotion.color}`,border:`1px solid ${emotion.color}`,borderRadius:10,marginBottom:'1.25rem'}}>
               <div style={{fontSize:12,fontWeight:'bold',color:emotion.color,fontFamily:'Georgia,serif',marginBottom:3}}>{emotion.label}</div>
               <div style={{fontSize:11,opacity:.55,fontFamily:'monospace'}}>{emotion.desc}</div>
             </div>
@@ -4493,7 +4901,7 @@ function CompositionAssistee() {
                 const d=scale[degIdx];
                 const root=CHROMATIC[(ri+d.semi)%12];
                 const name=root+(CHORD_TYPES[d.type]?.suffix||'');
-                return(<div key={i} style={{padding:'.75rem .9rem',background:`${d.color}18`,border:`1.5px solid ${d.color}60`,borderRadius:12,textAlign:'center',minWidth:60}}>
+                return(<div key={i} style={{padding:'.75rem .9rem',background:`${d.color}08`,border:`1.5px solid ${d.color}40`,borderRadius:12,textAlign:'center',minWidth:60}}>
                   <div style={{fontSize:9,color:d.color,fontFamily:'monospace',opacity:.7,marginBottom:3}}>{d.deg}</div>
                   <div style={{fontSize:18,fontWeight:'bold',color:d.color,fontFamily:'monospace',lineHeight:1}}>{name}</div>
                   <div style={{fontSize:8,opacity:.4,fontFamily:'monospace',marginTop:3}}>{d.fn}</div>
@@ -4508,7 +4916,7 @@ function CompositionAssistee() {
               {scale.map((d,i)=>{
                 const root=CHROMATIC[(ri+d.semi)%12];
                 const name=root+(CHORD_TYPES[d.type]?.suffix||'');
-                return(<button key={i} onClick={()=>setProg(p=>[...p,i])} style={{background:`${d.color}10`,border:`0.5px solid ${d.color}40`,color:d.color,padding:'.4rem .7rem',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace',transition:'all 0.15s'}}>+{name}</button>);
+                return(<button key={i} onClick={()=>setProg(p=>[...p,i])} style={{background:`${d.color}08`,border:`0.5px solid ${d.color}30`,color:d.color,padding:'.4rem .7rem',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace',transition:'all 0.15s'}}>+{name}</button>);
               })}
             </div>
           </div>
@@ -4578,18 +4986,18 @@ function ExtensionsTensions() {
       <div style={{marginBottom:'1.25rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
         <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>ACCORD DE BASE</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:4,marginBottom:'0.75rem'}}>
-          {ROOT_NOTES.map(r=>{const nc=NOTE_COLORS[r]||'#8B5CF6',sel=root===r;return(<button key={r} onClick={()=>{setRoot(r);setActive(new Set());}} style={{background:sel?`${nc}25`:`${nc}10`,border:`1.5px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 10px ${nc}40`:'none'}}>{r}</button>);} )}
+          {ROOT_NOTES.map(r=>{const nc=NOTE_COLORS[r]||'#8B5CF6',sel=root===r;return(<button key={r} onClick={()=>{setRoot(r);setActive(new Set());}} style={{background:sel?`${nc}`:`${nc}`,border:`1.5px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 10px ${nc}`:'none'}}>{r}</button>);} )}
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>
           {Object.entries(CHORD_TYPES).slice(0,3).map(([t,{label}])=>{
             const tc=CHORD_COLORS[t]||'#8B5CF6',sel=baseType===t;
-            return(<button key={t} onClick={()=>{setBaseType(t);setActive(new Set());}} style={{background:sel?`${tc}20`:`${tc}08`,border:`1px solid ${sel?tc:tc+'30'}`,color:sel?tc:`${tc}99`,padding:'.5rem .25rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',transition:'all 0.15s'}}>{label}</button>);
+            return(<button key={t} onClick={()=>{setBaseType(t);setActive(new Set());}} style={{background:sel?`${tc}`:`${tc}`,border:`1px solid ${sel?tc:tc+'30'}`,color:sel?tc:`${tc}`,padding:'.5rem .25rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',transition:'all 0.15s'}}>{label}</button>);
           })}
         </div>
       </div>
 
       {/* Base chord display */}
-      <div style={{textAlign:'center',marginBottom:'1.25rem',padding:'1rem',background:`${color}10`,border:`1px solid ${color}30`,borderRadius:12}}>
+      <div style={{textAlign:'center',marginBottom:'1.25rem',padding:'1rem',background:`${color}08`,border:`1px solid ${color}30`,borderRadius:12}}>
         <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>ACCORD ACTUEL</div>
         <div style={{fontSize:40,fontWeight:'bold',color,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:8}}>
           {baseChordName}{active.size>0&&<span style={{fontSize:20,opacity:.6,marginLeft:4}}>{Array.from(active).join('')}</span>}
@@ -4601,7 +5009,7 @@ function ExtensionsTensions() {
         )}
         <div style={{display:'flex',gap:8,justifyContent:'center'}}>
           <button onClick={playBase} style={{background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.7)',padding:'.4rem .9rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em'}}>🔊 BASE</button>
-          {active.size>0&&<button onClick={playFull} style={{background:`${color}18`,border:`1px solid ${color}`,color,padding:'.4rem .9rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold'}}>🎵 AVEC TENSIONS</button>}
+          {active.size>0&&<button onClick={playFull} style={{background:`${color}08`,border:`1px solid ${color}30`,color,padding:'.4rem .9rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold'}}>🎵 AVEC TENSIONS</button>}
           {active.size>0&&<button onClick={()=>setActive(new Set())} style={{background:'rgba(241,148,138,0.1)',border:'0.5px solid rgba(241,148,138,0.3)',color:'#F1948A',padding:'.4rem .75rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace'}}>✕ Reset</button>}
         </div>
       </div>
@@ -4617,10 +5025,10 @@ function ExtensionsTensions() {
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           {EXTENSIONS_DATA.map(ext=>{
             const isOn=active.has(ext.label);
-            return(<div key={ext.label} style={{background:isOn?`${ext.color}15`:'rgba(255,255,255,0.03)',border:`1px solid ${isOn?ext.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem',transition:'all 0.2s'}}>
+            return(<div key={ext.label} style={{background:isOn?`${ext.color}`:'rgba(255,255,255,0.03)',border:`1px solid ${isOn?ext.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem',transition:'all 0.2s'}}>
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:isOn?'.65rem':0}}>
                 <div style={{display:'flex',gap:10,alignItems:'center'}}>
-                  <button onClick={()=>toggleExt(ext.label)} style={{background:isOn?ext.color:'rgba(255,255,255,0.06)',border:`1.5px solid ${ext.color}`,color:isOn?'#0D0B1E':ext.color,padding:'.3rem .6rem',borderRadius:8,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',minWidth:56,transition:'all 0.2s',boxShadow:isOn?`0 2px 10px ${ext.color}50`:'none'}}>
+                  <button onClick={()=>toggleExt(ext.label)} style={{background:isOn?ext.color:'rgba(255,255,255,0.06)',border:`1.5px solid ${ext.color}`,color:isOn?'#0D0B1E':ext.color,padding:'.3rem .6rem',borderRadius:8,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',minWidth:56,transition:'all 0.2s',boxShadow:isOn?`0 2px 10px ${ext.color}`:'none'}}>
                     {ext.label}
                   </button>
                   <div>
@@ -4628,12 +5036,12 @@ function ExtensionsTensions() {
                     <div style={{fontSize:10,fontStyle:'italic',color:ext.color,opacity:.8}}>"{ext.emotion}"</div>
                   </div>
                 </div>
-                <button onClick={()=>setShowUse(showUse===ext.label?null:ext.label)} style={{background:'transparent',border:`0.5px solid ${ext.color}40`,color:ext.color,padding:'2px 7px',borderRadius:6,cursor:'pointer',fontSize:9,fontFamily:'monospace',flexShrink:0}}>
+                <button onClick={()=>setShowUse(showUse===ext.label?null:ext.label)} style={{background:'transparent',border:`0.5px solid ${ext.color}`,color:ext.color,padding:'2px 7px',borderRadius:6,cursor:'pointer',fontSize:9,fontFamily:'monospace',flexShrink:0}}>
                   {showUse===ext.label?'▲':'↗ USE'}
                 </button>
               </div>
               {isOn&&<p style={{fontSize:11,opacity:.65,lineHeight:1.6,margin:'0 0 .5rem',fontFamily:'Georgia,serif'}}>{ext.desc}</p>}
-              {showUse===ext.label&&(<div style={{padding:'.65rem',background:`${ext.color}10`,borderRadius:8,marginTop:6,animation:'fadeIn 0.2s ease'}}>
+              {showUse===ext.label&&(<div style={{padding:'.65rem',background:`${ext.color}`,borderRadius:8,marginTop:6,animation:'fadeIn 0.2s ease'}}>
                 <div style={{fontSize:9,color:ext.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.35rem'}}>COMMENT L'INTÉGRER</div>
                 <p style={{fontSize:11,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{ext.use}</p>
               </div>)}
@@ -4676,7 +5084,7 @@ function CadencesPage() {
         {CADENCES_DATA.map(cad=>{
           const isA=active===cad.id;
           return(
-            <div key={cad.id} style={{background:isA?`${cad.color}12`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?cad.color:'rgba(255,255,255,0.08)'}`,borderRadius:14,padding:'1rem',transition:'all 0.3s'}}>
+            <div key={cad.id} style={{background:isA?`${cad.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?cad.color:'rgba(255,255,255,0.08)'}`,borderRadius:14,padding:'1rem',transition:'all 0.3s'}}>
               {/* Header */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.75rem'}}>
                 <div>
@@ -4685,17 +5093,17 @@ function CadencesPage() {
                     {cad.chords.map((ch,i)=>(
                       <span key={i} style={{display:'flex',alignItems:'center',gap:4}}>
                         {i>0&&<span style={{opacity:.3,fontSize:12}}>→</span>}
-                        <span style={{fontSize:12,fontFamily:'monospace',color:NOTE_COLORS[ch.r]||cad.color,padding:'2px 7px',background:`${NOTE_COLORS[ch.r]||cad.color}15`,borderRadius:6}}>{ch.r}{CHORD_TYPES[ch.t]?.suffix}</span>
+                        <span style={{fontSize:12,fontFamily:'monospace',color:NOTE_COLORS[ch.r]||cad.color,padding:'2px 7px',background:`${NOTE_COLORS[ch.r]||cad.color}`,borderRadius:6}}>{ch.r}{CHORD_TYPES[ch.t]?.suffix}</span>
                       </span>
                     ))}
                   </div>
                 </div>
-                <button onClick={()=>playCadence(cad)} disabled={playing} style={{background:`${cad.color}20`,border:`1px solid ${cad.color}`,color:cad.color,padding:'.45rem .85rem',borderRadius:10,cursor:playing?'default':'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',flexShrink:0,transition:'all 0.2s',boxShadow:`0 2px 10px ${cad.color}30`}}>
+                <button onClick={()=>playCadence(cad)} disabled={playing} style={{background:`${cad.color}08`,border:`1px solid ${cad.color}30`,color:cad.color,padding:'.45rem .85rem',borderRadius:10,cursor:playing?'default':'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',flexShrink:0,transition:'all 0.2s',boxShadow:`0 2px 10px ${cad.color}`}}>
                   {playing&&isA?'▶…':'▶ ÉCOUTER'}
                 </button>
               </div>
               {/* Emotion */}
-              <div style={{padding:'.65rem .85rem',background:`${cad.color}10`,borderRadius:10,marginBottom:'.65rem'}}>
+              <div style={{padding:'.65rem .85rem',background:`${cad.color}08`,borderRadius:10,marginBottom:'.65rem'}}>
                 <div style={{fontSize:9,color:cad.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>RESSENTI</div>
                 <p style={{fontSize:12,opacity:.75,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{cad.emotion}</p>
               </div>
@@ -4771,7 +5179,7 @@ function ModulationPage() {
         <div>
           <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem',textAlign:'center'}}>DÉPART</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
-            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=fromKey===k;return(<button key={k} onClick={()=>setFromKey(k)} style={{background:sel?`${nc}25`:`${nc}10`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}40`:'none'}}>{k}</button>);} )}
+            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=fromKey===k;return(<button key={k} onClick={()=>setFromKey(k)} style={{background:sel?`${nc}`:`${nc}`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}`:'none'}}>{k}</button>);} )}
           </div>
         </div>
         {/* Arrow */}
@@ -4780,7 +5188,7 @@ function ModulationPage() {
         <div>
           <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem',textAlign:'center'}}>ARRIVÉE</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
-            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=toKey===k;return(<button key={k} onClick={()=>setToKey(k)} style={{background:sel?`${nc}25`:`${nc}10`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}40`:'none'}}>{k}</button>);} )}
+            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=toKey===k;return(<button key={k} onClick={()=>setToKey(k)} style={{background:sel?`${nc}`:`${nc}`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}`:'none'}}>{k}</button>);} )}
           </div>
         </div>
       </div>
@@ -4809,7 +5217,7 @@ function ModulationPage() {
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
               {pivots.map((p,i)=>{
                 const asTo=toDegrees.find(t=>t.name===p.name);
-                return(<div key={i} style={{padding:'.5rem .75rem',background:`${p.color}15`,border:`1px solid ${p.color}40`,borderRadius:10}}>
+                return(<div key={i} style={{padding:'.5rem .75rem',background:`${p.color}`,border:`1px solid ${p.color}`,borderRadius:10}}>
                   <div style={{fontSize:13,fontWeight:'bold',color:p.color,fontFamily:'monospace',marginBottom:2}}>{p.name}</div>
                   <div style={{fontSize:9,opacity:.55,fontFamily:'monospace'}}>{p.deg} dans {fromKey} / {asTo?.deg} dans {toKey}</div>
                 </div>);
@@ -4824,17 +5232,17 @@ function ModulationPage() {
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {MODULATION_TYPES.map(mt=>{
               const isA=selType===mt.id;
-              return(<button key={mt.id} onClick={()=>setSelType(isA?null:mt.id)} style={{background:isA?`${mt.color}12`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?mt.color:'rgba(255,255,255,0.08)'}`,borderRadius:12,padding:'.9rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}>
+              return(<button key={mt.id} onClick={()=>setSelType(isA?null:mt.id)} style={{background:isA?`${mt.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?mt.color:'rgba(255,255,255,0.08)'}`,borderRadius:12,padding:'.9rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isA?'.65rem':0}}>
                   <div style={{display:'flex',gap:8,alignItems:'center'}}>
                     <span style={{fontSize:13,fontWeight:'bold',color:mt.color,fontFamily:'Georgia,serif'}}>{mt.name}</span>
-                    <span style={{fontSize:9,padding:'2px 7px',background:`${mt.color}18`,border:`0.5px solid ${mt.color}40`,borderRadius:6,color:mt.color,fontFamily:'monospace'}}>{mt.diff}</span>
+                    <span style={{fontSize:9,padding:'2px 7px',background:`${mt.color}`,border:`0.5px solid ${mt.color}`,borderRadius:6,color:mt.color,fontFamily:'monospace'}}>{mt.diff}</span>
                   </div>
                   <span style={{fontSize:12,opacity:.4}}>{isA?'▲':'▼'}</span>
                 </div>
                 {isA&&(<div style={{animation:'fadeIn 0.25s ease'}}>
                   <p style={{fontSize:12,opacity:.65,lineHeight:1.65,margin:'0 0 .65rem',fontFamily:'Georgia,serif'}}>{mt.desc}</p>
-                  <div style={{padding:'.65rem',background:`${mt.color}10`,borderRadius:8,marginBottom:'.5rem'}}>
+                  <div style={{padding:'.65rem',background:`${mt.color}`,borderRadius:8,marginBottom:'.5rem'}}>
                     <div style={{fontSize:9,color:mt.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>COMMENT FAIRE</div>
                     <p style={{fontSize:11,opacity:.65,lineHeight:1.55,margin:0,fontFamily:'Georgia,serif'}}>{mt.how}</p>
                   </div>
@@ -4897,12 +5305,12 @@ function CoinHarmoniePage() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
         {MODS.map((m)=>(
           <button key={m.id} onClick={()=>setSub(m.id)}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 10px 28px ${m.color}35`;}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}40`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}
-            style={{background:`${m.color}08`,border:`1.5px solid ${m.color}40`,borderRadius:16,padding:'1.1rem',display:'flex',flexDirection:'column',gap:8,cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}>
+            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 10px 28px ${m.color}`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}
+            style={{background:`${m.color}08`,border:`1.5px solid ${m.color}`,borderRadius:16,padding:'1.1rem',display:'flex',flexDirection:'column',gap:8,cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <span style={{fontSize:28}}>{m.icon}</span>
-              <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 6px',borderRadius:8}}>DISPONIBLE</span>
+              <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}`,padding:'2px 6px',borderRadius:8}}>DISPONIBLE</span>
             </div>
             <div>
               <div style={{fontSize:14,fontWeight:'bold',color:m.color,fontFamily:'Georgia,serif',marginBottom:4}}>{m.title}</div>
@@ -4915,31 +5323,933 @@ function CoinHarmoniePage() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── COURS INTERACTIFS DE THÉORIE ─────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Composant de mot cliquable avec définition mascotte
+function MotCle({ children, definition, color='#A78BFA', onClickWord }) {
+  return (
+    <span
+      onClick={() => onClickWord && onClickWord(children, definition)}
+      style={{
+        color, fontWeight:'bold', cursor:'pointer',
+        borderBottom:`1.5px dotted ${color}`,
+        padding:'0 1px', transition:'all 0.15s',
+        display:'inline',
+      }}
+      onMouseEnter={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderRadius='3px';}}
+      onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}
+    >
+      {children}
+    </span>
+  );
+}
+
+// Popup mascotte pour définitions de mots-clés
+function MascoтteDefinitionPopup({ word, definition, onClose }) {
+  if (!word) return null;
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:500, display:'flex', alignItems:'flex-end',
+      background:'rgba(0,0,0,0.5)', backdropFilter:'blur(4px)',
+    }} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        width:'100%', maxHeight:'60vh', overflowY:'auto',
+        background:'linear-gradient(160deg,#1a0a2e,#0D0B1E)',
+        border:'2px solid rgba(167,139,250,0.5)',
+        borderRadius:'20px 20px 0 0', padding:'1.5rem',
+        boxShadow:'0 -16px 48px rgba(139,92,246,0.35)',
+        animation:'slideUp 0.35s cubic-bezier(0.34,1.56,0.64,1)',
+      }}>
+        <div style={{display:'flex',alignItems:'flex-start',gap:'1rem',marginBottom:'1rem'}}>
+          <Mascotte expression="happy" size={64} animate/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:4}}>NOIRE EXPLIQUE</div>
+            <div style={{fontSize:18,fontWeight:'bold',color:'#fff',fontFamily:'Georgia,serif',marginBottom:8}}>{word}</div>
+            <p style={{fontSize:13.5,color:'rgba(255,255,255,0.82)',lineHeight:1.7,margin:0,fontFamily:'Georgia,serif'}}>{definition}</p>
+          </div>
+        </div>
+        <button onClick={onClose} style={{width:'100%',padding:'.7rem',background:'rgba(167,139,250,0.15)',border:'1.5px solid #A78BFA',color:'#A78BFA',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold'}}>
+          MERCI NOIRE ! ✓
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Cours 1 : Gammes et modes ─────────────────────────────────────────────────
+function CoursGammesModes() {
+  const [activeSection, setActiveSection] = useState('gammes');
+  const [defWord,  setDefWord]  = useState(null);
+  const [defText,  setDefText]  = useState(null);
+
+  const M = (word, def, color='#A78BFA') => (
+    <MotCle color={color} onClickWord={(w,d)=>{setDefWord(w);setDefText(d);}}
+      definition={def}>{word}</MotCle>
+  );
+
+  const SECTIONS = [
+    { id:'gammes',  label:'Gammes',  icon:'🎼' },
+    { id:'modes',   label:'Modes',   icon:'🌀' },
+    { id:'pratique',label:'Pratique',icon:'🎹' },
+  ];
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Tab nav */}
+      <div style={{display:'flex',borderBottom:'1px solid rgba(255,255,255,0.07)',flexShrink:0,background:'rgba(13,11,30,0.6)'}}>
+        {SECTIONS.map(s=>(
+          <button key={s.id} onClick={()=>setActiveSection(s.id)}
+            style={{flex:1,padding:'.65rem .25rem',background:'none',border:'none',borderBottom:activeSection===s.id?'2px solid #C39BD3':'2px solid transparent',color:activeSection===s.id?'#C39BD3':'rgba(255,255,255,0.4)',cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.04em',transition:'all 0.2s',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+            <span style={{fontSize:14}}>{s.icon}</span>{s.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+
+        {activeSection==='gammes' && (<div style={{display:'flex',flexDirection:'column',gap:'1.25rem',animation:'fadeIn 0.3s ease'}}>
+          <h3 style={{fontSize:20,fontWeight:'bold',margin:'0 0 .25rem',background:'linear-gradient(90deg,#C39BD3,#A78BFA)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Gammes et modes</h3>
+
+          <div style={{padding:'1rem',background:'rgba(195,155,211,0.08)',border:'1px solid rgba(195,155,211,0.2)',borderRadius:12}}>
+            <h4 style={{fontSize:15,fontWeight:'bold',color:'#C39BD3',marginBottom:'.65rem'}}>Qu'est-ce qu'une gamme ?</h4>
+            <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif'}}>
+              Une {M("gamme","Une gamme est une succession ordonnée de notes qui définit l'univers sonore d'un morceau. Pense à elle comme à une palette de couleurs — certaines notes sont disponibles, d'autres non.","#C39BD3")} est une série de notes ordonnées selon un {M("schéma d'intervalles","Un intervalle est la distance sonore entre deux notes. Les intervalles d'une gamme sont mesurés en tons (T) et demi-tons (1/2). Ex: Do-Ré = 1 ton, Do-Ré♭ = 1/2 ton.","#85C1E9")} fixe. Elle définit le &quot;territoire sonore&quot; d'un morceau. Une gamme commence et finit sur la même note — appelée {M("tonique","La tonique (ou fondamentale) est la note de départ d'une gamme. C'est le centre de gravité de toute la musique tonale. Une mélodie cherche toujours à revenir à la tonique.","#82E0AA")}.
+            </p>
+          </div>
+
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+            <h4 style={{fontSize:15,fontWeight:'bold',color:'#F7DC6F',marginBottom:'.65rem'}}>La gamme majeure</h4>
+            <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',marginBottom:'1rem'}}>
+              La gamme {M("majeure","La gamme majeure est souvent décrite comme 'joyeuse' ou 'lumineuse'. Son schéma (T-T-1/2-T-T-T-1/2) lui donne sa couleur positive. C'est la gamme de Do (toutes touches blanches du piano).","#F7DC6F")} est la plus fondamentale de la musique occidentale. Son schéma d'intervalles est : {M("Ton","Un Ton = 2 demi-tons = 2 touches consécutives en comptant les noires. Ex: Do à Ré = 1 Ton.","#85C1E9")}-{M("Ton","Un Ton = 2 demi-tons = 2 touches consécutives en comptant les noires. Ex: Do à Ré = 1 Ton.","#85C1E9")}-{M("Demi-ton","Un Demi-ton = la plus petite distance possible entre deux notes. Sur le piano, c'est la distance entre une touche et la touche immédiatement voisine (noire ou blanche). Ex: Mi à Fa = 1 Demi-ton.","#A78BFA")}-Ton-Ton-Ton-Demi-ton.
+            </p>
+            {/* Visual scale display */}
+            <div style={{background:'rgba(0,0,0,0.2)',borderRadius:10,padding:'.85rem',marginBottom:'.75rem'}}>
+              <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem'}}>GAMME DE DO MAJEUR</div>
+              <div style={{display:'flex',gap:4,alignItems:'flex-end',flexWrap:'wrap'}}>
+                {[{n:'Do',i:'T'},{n:'Ré',i:'T'},{n:'Mi',i:'½'},{n:'Fa',i:'T'},{n:'Sol',i:'T'},{n:'La',i:'T'},{n:'Si',i:'½'},{n:'Do',i:''}].map((note,i)=>(
+                  <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                    <div style={{width:36,height:36,borderRadius:8,background:i===0||i===7?'rgba(195,155,211,0.3)':'rgba(255,255,255,0.08)',border:`1px solid ${i===0||i===7?'#C39BD3':'rgba(255,255,255,0.15)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:'bold',color:i===0||i===7?'#C39BD3':'rgba(255,255,255,0.7)'}}>
+                      {note.n}
+                    </div>
+                    {note.i&&<div style={{fontSize:9,color:'rgba(255,255,255,0.35)',fontFamily:'monospace'}}>{note.i}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <p style={{fontSize:12.5,lineHeight:1.7,opacity:.7,fontFamily:'Georgia,serif',margin:0}}>
+              La {M("tierce majeure","La tierce majeure est l'intervalle entre la 1ère et la 3e note d'une gamme majeure — 4 demi-tons (Do-Mi). C'est elle qui donne la couleur 'joyeuse' à l'accord majeur. Enlève-la et tu obtiens une tierce mineure (3 demi-tons) qui donne la couleur 'triste'.","#F7DC6F")} (Do-Mi, soit 4 demi-tons) et la {M("quinte juste","La quinte juste est l'intervalle entre la 1ère et la 5e note — 7 demi-tons. C'est l'intervalle le plus stable et consonant après l'octave. C'est le fondement de tout accord en musique occidentale.","#82E0AA")} (Do-Sol, 7 demi-tons) définissent la couleur lumineuse de la gamme majeure.
+            </p>
+          </div>
+
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+            <h4 style={{fontSize:15,fontWeight:'bold',color:'#A78BFA',marginBottom:'.65rem'}}>La gamme mineure naturelle</h4>
+            <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',marginBottom:'1rem'}}>
+              La gamme {M("mineure naturelle","La gamme mineure naturelle (ou mineure éolienne) est la 6e note de la gamme majeure prise comme nouvelle tonique. Ex: La mineur = les mêmes notes que Do majeur mais en partant de La. C'est pourquoi Do majeur et La mineur sont 'relatifs'.","#A78BFA")} a un schéma différent : Ton-Demi-ton-Ton-Ton-Demi-ton-Ton-Ton. Sa {M("tierce mineure","La tierce mineure (Do-Mi♭, 3 demi-tons) est ce qui donne la couleur 'sombre' ou 'mélancolique' à un accord ou une gamme mineure. C'est 1 demi-ton de moins que la tierce majeure.","#A78BFA")} (Do-Mi♭) lui donne sa couleur sombre et introspective.
+            </p>
+            <div style={{background:'rgba(0,0,0,0.2)',borderRadius:10,padding:'.85rem'}}>
+              <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem'}}>GAMME DE LA MINEUR NATUREL</div>
+              <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                {[{n:'La',i:'T'},{n:'Si',i:'½'},{n:'Do',i:'T'},{n:'Ré',i:'T'},{n:'Mi',i:'½'},{n:'Fa',i:'T'},{n:'Sol',i:'T'},{n:'La',i:''}].map((note,i)=>(
+                  <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
+                    <div style={{width:36,height:36,borderRadius:8,background:i===0||i===7?'rgba(167,139,250,0.3)':'rgba(255,255,255,0.08)',border:`1px solid ${i===0||i===7?'#A78BFA':'rgba(255,255,255,0.15)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:'bold',color:i===0||i===7?'#A78BFA':'rgba(255,255,255,0.7)'}}>
+                      {note.n}
+                    </div>
+                    {note.i&&<div style={{fontSize:9,color:'rgba(255,255,255,0.35)',fontFamily:'monospace'}}>{note.i}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>)}
+
+        {activeSection==='modes' && (<div style={{display:'flex',flexDirection:'column',gap:'1.25rem',animation:'fadeIn 0.3s ease'}}>
+          <h3 style={{fontSize:20,fontWeight:'bold',margin:'0 0 .25rem',background:'linear-gradient(90deg,#06B6D4,#8B5CF6)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Les modes de la gamme majeure</h3>
+          <div style={{padding:'1rem',background:'rgba(6,182,212,0.08)',border:'1px solid rgba(6,182,212,0.2)',borderRadius:12}}>
+            <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',margin:0}}>
+              Les {M("modes","Les modes sont des variantes d'une gamme obtenues en changeant la note de départ. La gamme de Do majeur a 7 modes : Ionien, Dorien, Phrygien, Lydien, Mixolydien, Éolien, Locrien. Chacun a une couleur émotionnelle distincte.","#06B6D4")} sont créés en prenant les mêmes notes d'une gamme mais en changeant la {M("tonique","La tonique est la note centrale, le 'Do' de référence du mode. En changeant la tonique sur les mêmes notes, on change la couleur harmonique de tout un morceau.","#82E0AA")}. La gamme de Do majeur (Do-Ré-Mi-Fa-Sol-La-Si) a 7 modes.
+            </p>
+          </div>
+          {[
+            {name:'Ionien',  start:'Do', color:'#F7DC6F', feel:'Joyeux, stable',   desc:"C'est simplement la gamme majeure. Ton point de départ.", example:"Do-Ré-Mi-Fa-Sol-La-Si-Do"},
+            {name:'Dorien',  start:'Ré', color:'#82E0AA', feel:'Jazz, mélancolie douce', desc:"Gamme mineure avec une sixte majeure 'lumineuse'. Le mode du jazz moderne.", example:"Ré-Mi-Fa-Sol-La-Si-Do-Ré"},
+            {name:'Phrygien',start:'Mi', color:'#EF4444', feel:'Espagnol, dramatique', desc:"Sa seconde mineure lui donne ce caractère flamenco et andalou irrésistible.", example:"Mi-Fa-Sol-La-Si-Do-Ré-Mi"},
+            {name:'Lydien',  start:'Fa', color:'#A78BFA', feel:'Rêveur, cinéma', desc:"Sa quarte augmentée crée une flottement irréel. Très utilisé par John Williams.", example:"Fa-Sol-La-Si-Do-Ré-Mi-Fa"},
+            {name:'Mixolydien',start:'Sol',color:'#F59E0B',feel:'Blues, rock', desc:"Gamme majeure avec une septième mineure. L'accord de Sol7 y est naturel.", example:"Sol-La-Si-Do-Ré-Mi-Fa-Sol"},
+            {name:'Éolien',  start:'La', color:'#C39BD3', feel:'Triste, introspectif', desc:"La gamme mineure naturelle. Le mode le plus utilisé en musique populaire.", example:"La-Si-Do-Ré-Mi-Fa-Sol-La"},
+            {name:'Locrien', start:'Si', color:'#6B7280', feel:'Instable, dissonant', desc:"Très rarement utilisé seul (quinte diminuée). Base du mode m7b5 en jazz.", example:"Si-Do-Ré-Mi-Fa-Sol-La-Si"},
+          ].map(mode=>(
+            <div key={mode.name} style={{padding:'1rem',background:`${mode.color}08`,border:`1px solid ${mode.color}30`,borderRadius:12}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:5}}>
+                <div style={{fontSize:15,fontWeight:'bold',color:mode.color,fontFamily:'Georgia,serif'}}>{mode.name} — {mode.start}</div>
+                <span style={{fontSize:10,fontFamily:'monospace',color:mode.color,opacity:.7,padding:'2px 7px',background:`${mode.color}08`,borderRadius:6}}>{mode.feel}</span>
+              </div>
+              <p style={{fontSize:12.5,opacity:.7,margin:'0 0 .5rem',lineHeight:1.6,fontFamily:'Georgia,serif'}}>{mode.desc}</p>
+              <div style={{fontSize:11,fontFamily:'monospace',color:`${mode.color}`,letterSpacing:'.04em'}}>{mode.example}</div>
+            </div>
+          ))}
+        </div>)}
+
+        {activeSection==='pratique' && (<div style={{display:'flex',flexDirection:'column',gap:'1.25rem',animation:'fadeIn 0.3s ease'}}>
+          <h3 style={{fontSize:20,fontWeight:'bold',margin:'0 0 .25rem',color:'#82E0AA'}}>Apprendre ses gammes au piano</h3>
+          <div style={{padding:'1rem',background:'rgba(130,224,170,0.08)',border:'1px solid rgba(130,224,170,0.2)',borderRadius:12}}>
+            <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif'}}>
+              Apprendre ses gammes n'est pas une punition — c'est construire son vocabulaire musical. Un pianiste qui connaît ses gammes peut improviser, transposer et analyser instantanément. La méthode : {M("gamme de Do d'abord","Do majeur = toutes les touches blanches. Pas de dièse ni bémol. C'est la gamme la plus simple visuellement. Une fois maîtrisée, les autres gammes suivent le même schéma décalé.","#82E0AA")}, puis le {M("cycle des quintes","Le cycle des quintes est l'ordre dans lequel on ajoute des dièses (Do, Sol, Ré, La...) ou des bémols (...Mi♭, Si♭, Fa) à l'armure. C'est l'ordre idéal pour apprendre les gammes progressivement.","#F7DC6F")}.
+            </p>
+          </div>
+          {[
+            {title:"Doigté main droite — gamme majeure", color:'#85C1E9',
+             content:"Le doigté standard de la gamme de Do MD est : 1-2-3 / 1-2-3-4-5. Le passage du pouce (1 sous 3 à la montée, 3 sur 1 à la descente) est la clé. À pratiquer lentement (60 BPM) en contrôlant que le poignet reste horizontal."},
+            {title:"Doigté main gauche — gamme majeure", color:'#F1948A',
+             content:"MG gamme de Do : 5-4-3-2-1 / 3-2-1 (montée). Le passage s'effectue sur la 6e note. À la descente : 1-2-3 / 1-2-3-4-5. Les deux mains en même temps = même schéma de passage du pouce, symétrique."},
+            {title:"Méthode de travail quotidienne", color:'#F7DC6F',
+             content:"5 minutes/jour de gammes valent mieux qu'une heure par semaine. Commencer lentement (40 BPM) et ne jamais accélérer avant d'atteindre 10 répétitions parfaites. Jouer les gammes les yeux fermés renforce la mémoire musculaire."},
+            {title:"Les gammes pentatoniques", color:'#A78BFA',
+             content:"La pentatonique (5 notes : Do-Ré-Mi-Sol-La) est parfaite pour l'improvisation. Elle évite toutes les dissonances. C'est la gamme de base du blues, du rock et de la pop mondiale. À apprendre en deuxième après la gamme majeure."},
+          ].map((s,i)=>(
+            <div key={i} style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:`1px solid ${s.color}22`,borderRadius:12}}>
+              <div style={{fontSize:14,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif',marginBottom:'.5rem'}}>{s.title}</div>
+              <p style={{fontSize:13,opacity:.72,lineHeight:1.7,margin:0,fontFamily:'Georgia,serif'}}>{s.content}</p>
+            </div>
+          ))}
+        </div>)}
+      </div>
+
+      {defWord && <MascoтteDefinitionPopup word={defWord} definition={defText} onClose={()=>{setDefWord(null);setDefText(null);}}/>}
+    </div>
+  );
+}
+
+// ── Cours 2 : Intervalles ─────────────────────────────────────────────────────
+function CoursIntervalles() {
+  const [defWord, setDefWord] = useState(null);
+  const [defText, setDefText] = useState(null);
+  const M = (word, def, color='#85C1E9') => (
+    <MotCle color={color} onClickWord={(w,d)=>{setDefWord(w);setDefText(d);}} definition={def}>{word}</MotCle>
+  );
+
+  const INTERVALS = [
+    {name:'Unisson',      semis:0,  abbr:'1', color:'#6B7280', feel:'Identité sonore', ex:'Do-Do'},
+    {name:'Seconde mineure',semis:1,abbr:'2m',color:'#EF4444', feel:'Friction maximale',ex:'Do-Ré♭'},
+    {name:'Seconde majeure',semis:2,abbr:'2M',color:'#F59E0B', feel:'Tension légère',  ex:'Do-Ré'},
+    {name:'Tierce mineure',semis:3, abbr:'3m',color:'#A78BFA', feel:'Mélancolie',       ex:'Do-Mi♭'},
+    {name:'Tierce majeure',semis:4, abbr:'3M',color:'#F7DC6F', feel:'Joie, lumière',   ex:'Do-Mi'},
+    {name:'Quarte juste',  semis:5, abbr:'4J',color:'#82E0AA', feel:'Stabilité ouverte',ex:'Do-Fa'},
+    {name:'Triton',        semis:6, abbr:'4+',color:'#EF4444', feel:'Tension diabolique',ex:'Do-Fa♯'},
+    {name:'Quinte juste',  semis:7, abbr:'5J',color:'#06B6D4', feel:'Solidité, force', ex:'Do-Sol'},
+    {name:'Sixte mineure', semis:8, abbr:'6m',color:'#C39BD3', feel:'Nostalgique',      ex:'Do-La♭'},
+    {name:'Sixte majeure', semis:9, abbr:'6M',color:'#10B981', feel:'Chaleureux',       ex:'Do-La'},
+    {name:'Septième mineure',semis:10,abbr:'7m',color:'#F59E0B',feel:'Tension douce',  ex:'Do-Si♭'},
+    {name:'Septième majeure',semis:11,abbr:'7M',color:'#8B5CF6',feel:'Suspendu, rêveur',ex:'Do-Si'},
+    {name:'Octave',        semis:12,abbr:'8',  color:'#82E0AA', feel:'Résolution totale',ex:'Do-Do'},
+  ];
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <h3 style={{fontSize:20,fontWeight:'bold',margin:'0 0 .25rem',background:'linear-gradient(90deg,#85C1E9,#06B6D4)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Les intervalles</h3>
+
+      <div style={{padding:'1rem',background:'rgba(133,193,233,0.08)',border:'1px solid rgba(133,193,233,0.2)',borderRadius:12}}>
+        <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',margin:0}}>
+          Un {M("intervalle","Un intervalle est la distance sonore entre deux notes. C'est l'élément de base de l'harmonie. Tous les accords et toutes les gammes sont construits à partir d'intervalles. Les maîtriser à l'oreille, c'est comprendre la musique.")} est la distance entre deux notes, mesurée en {M("demi-tons","Le demi-ton est la plus petite distance musicale en musique occidentale. Sur le piano, c'est la distance entre deux touches adjacentes (ex: Mi et Fa, ou Do et Do♯). 2 demi-tons = 1 ton.","#A78BFA")}. Un intervalle peut être {M("mélodique","Un intervalle mélodique est joué en séquence : une note après l'autre. Ex: Do puis Sol = quinte juste mélodique. C'est ce que fait une mélodie.","#82E0AA")} (notes successives) ou {M("harmonique","Un intervalle harmonique est joué simultanément : les deux notes en même temps. Ex: Do + Sol = quinte juste harmonique. C'est ce que fait un accord.")}.
+        </p>
+      </div>
+
+      {/* Interval table */}
+      <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{fontSize:10,color:'#85C1E9',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.85rem'}}>TABLEAU DES INTERVALLES</div>
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          {INTERVALS.map(int=>(
+            <div key={int.name} style={{display:'flex',alignItems:'center',gap:8,padding:'.5rem .75rem',background:`${int.color}`,border:`0.5px solid ${int.color}`,borderRadius:8}}>
+              <div style={{width:28,height:28,borderRadius:6,background:`${int.color}`,border:`1px solid ${int.color}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:'bold',color:int.color,fontFamily:'monospace',flexShrink:0}}>{int.semis}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,fontWeight:'bold',color:int.color,fontFamily:'Georgia,serif'}}>{int.name}</div>
+                <div style={{fontSize:10,opacity:.55,fontFamily:'monospace'}}>{int.ex}</div>
+              </div>
+              <div style={{fontSize:10,opacity:.55,fontFamily:'monospace',textAlign:'right',flexShrink:0}}>{int.feel}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Key intervals explained */}
+      <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{fontSize:10,color:'#85C1E9',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.85rem'}}>INTERVALLES FONDAMENTAUX</div>
+        <div style={{display:'flex',flexDirection:'column',gap:'1rem'}}>
+          {[
+            {title:"Le triton — diabolus in musica", color:'#EF4444',
+             text:`Le ${M("triton","Le triton (6 demi-tons) divise exactement l'octave en deux. Au Moyen Âge, il était interdit car jugé trop dissonant — diabolus in musica (le diable en musique). Aujourd'hui c'est la tension la plus forte de la musique tonale. G7 = Do-Mi-Sol-Si♭ contient un triton entre Mi et Si♭.","#EF4444")} est l'intervalle le plus instable. Il est au cœur de l'accord de dominante 7 et crée la tension qui pousse vers la résolution.`},
+            {title:"La quinte juste — le fondement", color:'#06B6D4',
+             text:`La ${M("quinte juste","La quinte juste (7 demi-tons) est l'intervalle le plus stable après l'octave. Tous les accordeurs de guitare utilisent la quinte. C'est la base du cycle des quintes, de la construction des accords et de l'intonation naturelle.","#06B6D4")} (7 demi-tons) est l'intervalle le plus consonant après l'octave. Il structure tout l'accord parfait (Do-Mi-Sol : fondamentale, tierce, quinte).`},
+            {title:"La tierce — la couleur majeur/mineur", color:'#A78BFA',
+             text:`La ${M("tierce","La tierce est l'intervalle entre la 1ère et la 3ème note d'une gamme. Tierce majeure = 4 demi-tons (joie). Tierce mineure = 3 demi-tons (mélancolie). C'est cet unique demi-ton de différence qui change toute la couleur émotionnelle d'un morceau.","#A78BFA")} définit si un accord sonne majeur ou mineur. 4 demi-tons = majeur (lumineux). 3 demi-tons = mineur (sombre). Un seul demi-ton de différence change toute l'atmosphère.`},
+          ].map((item,i)=>(
+            <div key={i} style={{padding:'.85rem',background:`${item.color}`,border:`1px solid ${item.color}`,borderRadius:10}}>
+              <div style={{fontSize:14,fontWeight:'bold',color:item.color,fontFamily:'Georgia,serif',marginBottom:'.5rem'}}>{item.title}</div>
+              <p style={{fontSize:13,opacity:.75,lineHeight:1.7,margin:0,fontFamily:'Georgia,serif'}}>{item.text}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Mnemonics */}
+      <div style={{padding:'1rem',background:'rgba(247,220,111,0.06)',border:'1px solid rgba(247,220,111,0.2)',borderRadius:12}}>
+        <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>MÉMO : IDENTIFIER LES INTERVALLES PAR L'ÉCOUTE</div>
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          {[
+            {int:'Octave',  song:'Quelque part au-delà de l\'arc-en-ciel (Wizard of Oz)'},
+            {int:'Quinte juste',    song:'Star Wars (thème principal, 2 premières notes)'},
+            {int:'Quarte juste',    song:'La Marseillaise (1ères notes "Allons")'},
+            {int:'Tierce majeure',  song:'When the Saints Go Marching In'},
+            {int:'Tierce mineure',  song:'Smoke On The Water (Deep Purple, intro)'},
+            {int:'Seconde majeure', song:'Happy Birthday (2 premières notes)'},
+            {int:'Triton',         song:'The Simpsons Theme (1ères notes)'},
+          ].map((m,i)=>(
+            <div key={i} style={{display:'flex',gap:8,fontSize:12,padding:'.35rem 0',borderBottom:'0.5px solid rgba(255,255,255,0.06)'}}>
+              <span style={{fontWeight:'bold',color:'#F7DC6F',fontFamily:'monospace',minWidth:120,flexShrink:0,fontSize:11}}>{m.int}</span>
+              <span style={{opacity:.65,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{m.song}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {defWord && <MascoтteDefinitionPopup word={defWord} definition={defText} onClose={()=>{setDefWord(null);setDefText(null);}}/>}
+    </div>
+  );
+}
+
+// ── Cours 3 : Construction des accords ───────────────────────────────────────
+function CoursConstructionAccords() {
+  const [defWord, setDefWord] = useState(null);
+  const [defText, setDefText] = useState(null);
+  const [playedChord, setPlayedChord] = useState(null);
+  const M = (word, def, color='#F7DC6F') => (
+    <MotCle color={color} onClickWord={(w,d)=>{setDefWord(w);setDefText(d);}} definition={def}>{word}</MotCle>
+  );
+
+  function playExChord(semis) {
+    semis.forEach((s,i)=>setTimeout(()=>playNote(s+4*12,0,1.5),i*80));
+    setPlayedChord(semis.join('-'));
+    setTimeout(()=>setPlayedChord(null),2000);
+  }
+
+  const CHORD_TYPES_THEORY = [
+    {name:'Accord majeur',  formula:[0,4,7],  color:'#F7DC6F', feel:'Lumineux, positif',   semis_ex:[0,4,7],
+     desc:"Fondamentale + tierce majeure (4 demi-tons) + quinte juste (7 demi-tons). L'accord parfait majeur."},
+    {name:'Accord mineur',  formula:[0,3,7],  color:'#A78BFA', feel:'Sombre, mélancolique',  semis_ex:[0,3,7],
+     desc:"Fondamentale + tierce mineure (3 demi-tons) + quinte juste (7 demi-tons). Un seul demi-ton de moins que le majeur."},
+    {name:'Accord diminué', formula:[0,3,6],  color:'#EF4444', feel:'Tension maximale',     semis_ex:[0,3,6],
+     desc:"Fondamentale + tierce mineure + quinte diminuée (6 demi-tons = triton). Très instable, demande résolution."},
+    {name:'Accord augmenté',formula:[0,4,8],  color:'#F59E0B', feel:'Mystérieux, flottant', semis_ex:[0,4,8],
+     desc:"Fondamentale + tierce majeure + quinte augmentée (8 demi-tons). Couleur mystérieuse, très utilisée en Jazz."},
+    {name:'Accord de 7e dominante',formula:[0,4,7,10],color:'#EF4444',feel:'Tension forte, appel à résoudre',semis_ex:[0,4,7,10],
+     desc:"Accord majeur + septième mineure (10 demi-tons). Contient un triton (entre la tierce et la 7e) qui crée la tension V7→I."},
+    {name:'Accord de 7e majeure',formula:[0,4,7,11],color:'#8B5CF6',feel:'Rêveur, nostalgique', semis_ex:[0,4,7,11],
+     desc:"Accord majeur + septième majeure (11 demi-tons). Plus doux que la 7e dominante. Signature du jazz moderne et de la bossa nova."},
+    {name:'Accord de 7e mineure',formula:[0,3,7,10],color:'#C39BD3',feel:'Jazz, sophistiqué',  semis_ex:[0,3,7,10],
+     desc:"Accord mineur + septième mineure. L'accord ii7 fondamental du jazz. Très utilisé pour les progressions ii-V-I."},
+  ];
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <h3 style={{fontSize:20,fontWeight:'bold',margin:'0 0 .25rem',background:'linear-gradient(90deg,#F7DC6F,#F59E0B)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Construction des accords</h3>
+
+      <div style={{padding:'1rem',background:'rgba(247,220,111,0.08)',border:'1px solid rgba(247,220,111,0.2)',borderRadius:12}}>
+        <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',margin:0}}>
+          Un {M("accord","Un accord est la superposition d'au moins 3 notes jouées simultanément. Un accord à 3 notes s'appelle une triade. À 4 notes : un accord de septième. Un accord est comme un mot dans le langage musical : il transmet une émotion précise.")} est une superposition de notes construite sur des {M("intervalles","Les intervalles sont les distances entre les notes. Pour construire un accord, on empile des tierces (3 ou 4 demi-tons) sur la note fondamentale. C'est la superposition d'intervalles qui crée la couleur de l'accord.","#85C1E9")} caractéristiques. La méthode universelle : partir d'une {M("fondamentale","La fondamentale (ou racine) est la note qui donne son nom à l'accord. Do majeur = accord dont la fondamentale est Do. C'est la note la plus grave dans un accord en position fondamentale.","#82E0AA")}, puis empiler des tierces.
+        </p>
+      </div>
+
+      {/* Chord types with play button */}
+      <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.85rem'}}>LES 7 TYPES D'ACCORDS ESSENTIELS — clique 🔊 pour écouter en Do</div>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {CHORD_TYPES_THEORY.map(ct=>{
+            const isPlaying = playedChord===ct.semis_ex.join('-');
+            return(
+              <div key={ct.name} style={{padding:'.85rem',background:`${ct.color}`,border:`1px solid ${ct.color}`,borderRadius:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:5}}>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:'bold',color:ct.color,fontFamily:'Georgia,serif',marginBottom:2}}>{ct.name}</div>
+                    <div style={{fontSize:10,opacity:.55,fontFamily:'monospace'}}>{ct.formula.join('-')} demi-tons · {ct.feel}</div>
+                  </div>
+                  <button onClick={()=>playExChord(ct.semis_ex)}
+                    style={{background:isPlaying?`${ct.color}`:`${ct.color}`,border:`1px solid ${ct.color}`,color:ct.color,padding:'4px 10px',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',flexShrink:0,transition:'all 0.2s',boxShadow:isPlaying?`0 2px 10px ${ct.color}`:'none'}}>
+                    {isPlaying?'▶…':'🔊'}
+                  </button>
+                </div>
+                <p style={{fontSize:12,opacity:.68,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>{ct.desc}</p>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Renversements */}
+      <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>LES RENVERSEMENTS</div>
+        <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',marginBottom:'1rem'}}>
+          Un {M("renversement","Un renversement est obtenu en déplaçant la note la plus grave d'un accord vers l'aigu. Accord de Do en position fondamentale : Do-Mi-Sol. 1er renversement : Mi-Sol-Do. 2ème renversement : Sol-Do-Mi. Le son change, mais la couleur (majeur/mineur) reste identique.")} change la note la plus grave de l'accord sans changer sa qualité. Ils permettent des enchaînements fluides ({M("voice leading","Le voice leading (conduite des voix) est l'art de relier les notes d'un accord au suivant avec le minimum de mouvement. Un bon voice leading crée une fluidité mélodique dans l'harmonie. Bach est le maître absolu du voice leading.","#A78BFA")}).
+        </p>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {[
+            {name:'Position fondamentale', notes:'Do-Mi-Sol', color:'#F7DC6F', desc:'La note la plus grave est la fondamentale'},
+            {name:'1er renversement',      notes:'Mi-Sol-Do', color:'#85C1E9', desc:'La tierce est à la basse'},
+            {name:'2ème renversement',     notes:'Sol-Do-Mi', color:'#82E0AA', desc:'La quinte est à la basse'},
+          ].map((r,i)=>(
+            <div key={i} style={{flex:1,minWidth:120,padding:'.75rem',background:`${r.color}`,border:`1px solid ${r.color}`,borderRadius:10}}>
+              <div style={{fontSize:12,fontWeight:'bold',color:r.color,fontFamily:'Georgia,serif',marginBottom:4}}>{r.name}</div>
+              <div style={{fontSize:13,fontFamily:'monospace',color:'rgba(255,255,255,0.75)',marginBottom:4}}>{r.notes}</div>
+              <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{r.desc}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Accords diatoniques */}
+      <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>LES 7 ACCORDS DIATONIQUES DE DO MAJEUR</div>
+        <p style={{fontSize:13,opacity:.7,lineHeight:1.65,marginBottom:'1rem',fontFamily:'Georgia,serif'}}>
+          En {M("harmonisant","Harmoniser une gamme = construire un accord sur chaque degré en utilisant uniquement les notes de cette gamme. On obtient 7 accords naturels qui s'entendent bien ensemble — c'est la base de toute composition tonale.","#F7DC6F")} la gamme de Do majeur (un accord sur chaque degré avec uniquement les notes de la gamme), on obtient :
+        </p>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
+          {[{d:'I',n:'Do M',c:'#F7DC6F'},{d:'ii',n:'Ré m',c:'#A78BFA'},{d:'iii',n:'Mi m',c:'#82E0AA'},{d:'IV',n:'Fa M',c:'#85C1E9'},{d:'V',n:'Sol M',c:'#EF4444'},{d:'vi',n:'La m',c:'#C39BD3'},{d:'vii°',n:'Si dim',c:'#6B7280'}].map(a=>(
+            <div key={a.d} style={{padding:'.55rem',background:`${a.c}`,border:`1px solid ${a.c}`,borderRadius:8,textAlign:'center'}}>
+              <div style={{fontSize:10,color:a.c,fontFamily:'monospace',opacity:.7,marginBottom:2}}>{a.d}</div>
+              <div style={{fontSize:12,fontWeight:'bold',color:a.c,fontFamily:'monospace'}}>{a.n}</div>
+            </div>
+          ))}
+        </div>
+        <p style={{fontSize:12,opacity:.6,lineHeight:1.6,margin:'.75rem 0 0',fontFamily:'Georgia,serif'}}>
+          I, IV et V sont majeurs (piliers harmoniques). ii, iii et vi sont mineurs (couleurs). vii° est diminué (tension).
+        </p>
+      </div>
+
+      {defWord && <MascoтteDefinitionPopup word={defWord} definition={defText} onClose={()=>{setDefWord(null);setDefText(null);}}/>}
+    </div>
+  );
+}
+
+// ── Quiz de fin de chapitre ───────────────────────────────────────────────────
+function CourseQuiz({ questions, courseTitle, color, onClose }) {
+  const [idx,      setIdx]      = useState(0);
+  const [answered, setAnswered] = useState(false);
+  const [chosen,   setChosen]   = useState(null);
+  const [score,    setScore]    = useState(0);
+  const [done,     setDone]     = useState(false);
+
+  const q = questions[idx];
+
+  function pick(i) {
+    if (answered) return;
+    setChosen(i); setAnswered(true);
+    if (i === q.correct) setScore(s=>s+1);
+  }
+
+  function next() {
+    if (idx >= questions.length-1) { setDone(true); return; }
+    setIdx(i=>i+1); setAnswered(false); setChosen(null);
+  }
+
+  if (done) {
+    const pct = Math.round((score/questions.length)*100);
+    const mc  = pct>=80?'#82E0AA':pct>=50?'#F7DC6F':'#F1948A';
+    return (
+      <div style={{padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}35`,borderRadius:14}}>
+          <div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1rem'}}>QUIZ — {courseTitle.toUpperCase()}</div>
+          <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score}<span style={{fontSize:28,opacity:.5}}>/{questions.length}</span></div>
+          <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
+          <div style={{fontSize:13,opacity:.55,fontFamily:'Georgia,serif',marginTop:8}}>
+            {pct>=80?'Excellent ! Tu maîtrises ce chapitre 🎉':pct>=50?'Bon travail, relis les points manquants !':'Relis le cours avant de retenter !'}
+          </div>
+        </div>
+        <button onClick={()=>{setIdx(0);setScore(0);setAnswered(false);setChosen(null);setDone(false);}}
+          style={{padding:'.85rem',background:`${color}08`,border:`1.5px solid ${color}`,color,borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold'}}>
+          🔄 RECOMMENCER LE QUIZ
+        </button>
+        <button onClick={onClose}
+          style={{padding:'.85rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.1em'}}>
+          ← RETOUR AU COURS
+        </button>
+      </div>
+    );
+  }
+
+  const pct = ((idx)/questions.length)*100;
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.7rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+          <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>QUIZ {idx+1}/{questions.length}</span>
+          <span style={{fontSize:10,fontFamily:'monospace',color:'#82E0AA'}}>{score} ✓</span>
+        </div>
+        <div style={{height:3,background:'rgba(255,255,255,0.08)',borderRadius:2}}>
+          <div style={{height:'100%',width:`${pct}%`,background:color,borderRadius:2,transition:'width 0.3s'}}/>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        <div style={{padding:'1.25rem',background:`${color}08`,border:`1px solid ${color}30`,borderRadius:14}}>
+          <div style={{fontSize:10,color,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>QUESTION {idx+1}</div>
+          <p style={{fontSize:15,fontWeight:'bold',lineHeight:1.55,margin:0,fontFamily:'Georgia,serif'}}>{q.question}</p>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {q.options.map((opt,i)=>{
+            const isCorrect=i===q.correct, isChosen=i===chosen;
+            let bg='rgba(255,255,255,0.04)',border='rgba(255,255,255,0.12)',col='rgba(255,255,255,0.8)';
+            if(answered){
+              if(isCorrect){bg=`${color}`;border=color;col=color;}
+              else if(isChosen){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}
+              else{col='rgba(255,255,255,0.25)';}
+            }
+            return(
+              <button key={i} onClick={()=>pick(i)} disabled={answered}
+                style={{background:bg,border:`1.5px solid ${border}`,color:col,padding:'.9rem 1rem',borderRadius:12,cursor:answered?'default':'pointer',textAlign:'left',fontSize:13,fontFamily:'Georgia,serif',lineHeight:1.5,transition:'all 0.2s'}}
+                onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderColor=`${color}`;}}}
+                onMouseLeave={e=>{if(!answered){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.12)';}}}
+              >
+                <span style={{fontFamily:'monospace',fontWeight:'bold',marginRight:8,opacity:.5}}>{String.fromCharCode(65+i)}.</span>{opt}
+              </button>
+            );
+          })}
+        </div>
+        {answered && (
+          <div style={{padding:'.85rem',background:chosen===q.correct?'rgba(130,224,170,0.07)':'rgba(241,148,138,0.07)',border:`1px solid ${chosen===q.correct?'rgba(130,224,170,0.3)':'rgba(241,148,138,0.3)'}`,borderRadius:10,animation:'fadeIn 0.25s ease'}}>
+            <p style={{fontSize:12.5,opacity:.75,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{q.explanation}</p>
+          </div>
+        )}
+        {answered && (
+          <button onClick={next}
+            style={{width:'100%',padding:'.9rem',background:`${color}08`,border:`1.5px solid ${color}`,color,borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
+            {idx>=questions.length-1?'VOIR MON SCORE →':'QUESTION SUIVANTE →'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Cours 4 : Fonctions harmoniques ──────────────────────────────────────────
+function CoursFonctionsHarmoniques() {
+  const [defWord,setDefWord]=useState(null);
+  const [defText,setDefText]=useState(null);
+  const [showQuiz,setShowQuiz]=useState(false);
+  const M=(word,def,color='#F1948A')=><MotCle color={color} onClickWord={(w,d)=>{setDefWord(w);setDefText(d);}} definition={def}>{word}</MotCle>;
+
+  const QUIZ_QUESTIONS=[
+    {question:"Quelle est la fonction de l'accord I dans une tonalité ?",
+     options:["Créer la tension maximale","Être le centre de repos et de stabilité","Préparer la dominante","Introduire une modulation"],
+     correct:1,explanation:"L'accord I (tonique) est le centre de gravité. Toute la musique tonale cherche à s'y reposer. C'est la 'maison' harmonique."},
+    {question:"Le V7 crée une tension forte vers le I. Pourquoi ?",
+     options:["Car il est plus grave que le I","Car il contient un triton entre sa tierce et sa septième","Car il est joué plus fort","Car il a plus de notes que le I"],
+     correct:1,explanation:"Le V7 contient un triton (intervalle le plus instable) entre sa tierce et sa 7e. Ce triton cherche naturellement à se résoudre par mouvement contraire vers le I."},
+    {question:"Qu'est-ce qu'une cadence parfaite ?",
+     options:["I → V","IV → I","V → I","ii → V"],
+     correct:2,explanation:"La cadence parfaite V→I est la conclusion la plus forte de la musique tonale. Elle donne une sensation de clôture définitive, comme un point final."},
+    {question:"L'accord IV a quelle fonction ?",
+     options:["Dominante","Tonique","Sous-dominante","Sensible"],
+     correct:2,explanation:"L'accord IV est la sous-dominante. Il crée un 'éloignement' de la tonique sans tension aussi forte que la dominante. Idéal pour les milieux de phrases."},
+    {question:"Que signifie 'déceptive' dans 'cadence déceptive' ?",
+     options:["La cadence est fausse","Au lieu de résoudre sur I, le V va vers vi","La cadence est incomplète","Le V n'est pas joué"],
+     correct:1,explanation:"La cadence déceptive (V→vi) 'trompe' l'oreille qui attendait le I. Elle crée une surprise douce, prolonge la phrase. Très utilisée pour éviter une fin prématurée."},
+  ];
+
+  if(showQuiz) return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <button onClick={()=>setShowQuiz(false)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:11,fontFamily:'monospace'}}>← RETOUR AU COURS</button>
+      </div>
+      <CourseQuiz questions={QUIZ_QUESTIONS} courseTitle="Fonctions harmoniques" color="#F1948A" onClose={()=>setShowQuiz(false)}/>
+    </div>
+  );
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <h3 style={{fontSize:20,fontWeight:'bold',margin:0,background:'linear-gradient(90deg,#F1948A,#F59E0B)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Fonctions harmoniques</h3>
+        <button onClick={()=>setShowQuiz(true)} style={{padding:'.4rem .85rem',background:'rgba(241,148,138,0.15)',border:'1px solid rgba(241,148,138,0.4)',color:'#F1948A',borderRadius:9,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',flexShrink:0,marginLeft:8}}>🎯 QUIZ</button>
+      </div>
+
+      <div style={{padding:'1rem',background:'rgba(241,148,138,0.08)',border:'1px solid rgba(241,148,138,0.2)',borderRadius:12}}>
+        <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',margin:0}}>
+          Chaque accord d'une gamme a un {M("rôle fonctionnel","Une fonction harmonique est le rôle qu'un accord joue dans la progression. Comme dans une phrase, certains mots créent l'attente, d'autres la résolvent. En musique tonale, tout accord est soit une tonique (repos), soit une dominante (tension), soit une sous-dominante (mouvement).")}. La musique tonale repose sur trois pôles : {M("Tonique","La tonique (T) est le centre de repos. En Do majeur, c'est l'accord de Do. Tous les chemins harmoniques y reviennent. Accords toniques en majeur : I, iii, vi.","#82E0AA")}, {M("Dominante","La dominante (D) est le pôle de tension maximale. Elle crée l'envie de revenir à la tonique. Accords dominants en majeur : V, vii°. Le V7 est la dominante la plus puissante.","#EF4444")}, {M("Sous-dominante","La sous-dominante (SD) est le pôle de mouvement — elle s'éloigne de la tonique sans créer autant de tension que la dominante. En majeur : IV, ii. Penser à l'Amen des hymnes (IV→I = cadence plagale).","#F7DC6F")}.
+        </p>
+      </div>
+
+      {[
+        {title:"I — La Tonique : la maison", color:'#82E0AA', icon:'🏠',
+         content:[
+           "L'accord I est le centre de gravité de toute la musique tonale. Tout morceau cherche à y revenir.",
+           "En Do majeur : Do-Mi-Sol. Sa tierce majeure et sa quinte juste lui donnent une stabilité parfaite.",
+           "Les accords iii et vi partagent des notes avec I et ont une fonction tonique secondaire (couleurs plus sombres).",
+           `Astuce : quand tu entends une mélodie qui "atterrit" et se stabilise, tu es probablement sur un accord I.`,
+         ]},
+        {title:"V — La Dominante : la tension", color:'#EF4444', icon:'⚡',
+         content:[
+           "L'accord V (Sol majeur en Do) contient la note sensible (Si) qui veut monter vers Do.",
+           "Le V7 (Sol-Si-Ré-Fa) est encore plus fort : il contient un triton Si-Fa qui cherche à se résoudre.",
+           "La résolution V→I est appelée cadence parfaite. C'est la conclusion harmonique la plus forte.",
+           "En jazz, on utilise souvent le V7alt (dominante altérée) pour une tension encore plus pimentée.",
+         ]},
+        {title:"IV — La Sous-dominante : le départ", color:'#F7DC6F', icon:'🚀',
+         content:[
+           "L'accord IV (Fa majeur en Do) crée un mouvement sans tension dramatique.",
+           "La progression I→IV donne une sensation d'élévation, d'ouverture — pensez à l'intro de Let It Be.",
+           "La cadence plagale IV→I (l'Amen des hymnes) est une résolution douce et spirituelle.",
+           "L'accord ii (Ré mineur en Do) est une sous-dominante mineure aux couleurs plus sophistiquées.",
+         ]},
+        {title:"Les cadences — ponctuations musicales", color:'#C39BD3', icon:'📌',
+         content:[
+           "Cadence parfaite V-I : point final. Clôture définitive, soulagement.",
+           "Cadence imparfaite (X-V) : virgule. Tension, attente, la musique continue.",
+           "Cadence déceptive V-vi : surprise. L'oreille attendait I et reçoit vi mineur.",
+           "Cadence plagale IV-I : Amen. Sérénité, spiritualité, conclusion douce.",
+         ]},
+      ].map((s,i)=>(
+        <div key={i} style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:`1px solid ${s.color}22`,borderRadius:12}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:'.75rem'}}>
+            <span style={{fontSize:20}}>{s.icon}</span>
+            <div style={{fontSize:15,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif'}}>{s.title}</div>
+          </div>
+          <ul style={{margin:0,paddingLeft:'1.25rem',display:'flex',flexDirection:'column',gap:6}}>
+            {s.content.map((c,j)=><li key={j} style={{fontSize:13,opacity:.75,lineHeight:1.6,fontFamily:'Georgia,serif'}}>{c}</li>)}
+          </ul>
+        </div>
+      ))}
+      {defWord&&<MascoтteDefinitionPopup word={defWord} definition={defText} onClose={()=>{setDefWord(null);setDefText(null);}}/>}
+    </div>
+  );
+}
+
+// ── Cours 5 : Cadences ────────────────────────────────────────────────────────
+function CoursCadences() {
+  const [defWord,setDefWord]=useState(null);
+  const [defText,setDefText]=useState(null);
+  const [showQuiz,setShowQuiz]=useState(false);
+  const [playing,setPlaying]=useState(null);
+  const M=(word,def,color='#06B6D4')=><MotCle color={color} onClickWord={(w,d)=>{setDefWord(w);setDefText(d);}} definition={def}>{word}</MotCle>;
+
+  async function playCadence(chords) {
+    setPlaying(true);
+    for(const [root,type] of chords) {
+      const ri=CHROMATIC.indexOf(root);
+      if(ri===-1)continue;
+      const notes=CHORD_TYPES[type].formula.map(f=>ri+f+4*12);
+      playChordArp(notes);
+      await new Promise(r=>setTimeout(r,1300));
+    }
+    setPlaying(false);
+  }
+
+  const CADENCES=[
+    {name:'Cadence parfaite',   formula:'V7 → I',  chords:[['G','Dom. 7'],['C','Majeures']], color:'#82E0AA',
+     feel:'Conclusion définitive — point final.',
+     desc:"La plus forte résolution de la musique tonale. L'oreille ressent un soulagement complet.",
+     usage:"Fin de morceau, fin de refrain, clôture d'une section. À utiliser quand tu veux que la musique s'arrête vraiment.",
+     examples:"Fin de presque toutes les sonates classiques. Bach l'utilise à la fin de chaque chorâl."},
+    {name:'Cadence imparfaite', formula:'I → V',   chords:[['C','Majeures'],['G','Majeures']], color:'#F7DC6F',
+     feel:'Suspension — une question sans réponse.',
+     desc:"La musique se termine sur la dominante, créant une attente. Comme une phrase qui se finit par...",
+     usage:"Milieu de couplet, fin de phrase musicale avant le refrain. Crée de l'élan vers ce qui suit.",
+     examples:"Fin du couplet de nombreuses chansons pop, fin des phrases dans les sonates de Haydn."},
+    {name:'Cadence déceptive',  formula:'V → vi',  chords:[['G','Dom. 7'],['A','Mineures']], color:'#A78BFA',
+     feel:"Surprise douce — l'oreille attendait Do et reçoit La mineur.",
+     desc:"Le V résout sur vi au lieu de I. La 'tromperie' harmonique la plus agréable.",
+     usage:"Pour prolonger une phrase, éviter une fin prématurée, créer une nuance émotionnelle.",
+     examples:"Let It Be (Beatles) — bridge. Beethoven Sonate \"Pathétique\" — 2ème mouvement."},
+    {name:'Cadence plagale',    formula:'IV → I',  chords:[['F','Majeures'],['C','Majeures']], color:'#85C1E9',
+     feel:"Spirituel, sérénité — l'Amen des cathédrales.",
+     desc:"Résolution douce sans tension forte. Associée aux hymnes religieux depuis des siècles.",
+     usage:"Fins d'hymnes, de ballades douces, de gospel. Pour une conclusion apaisée non dramatique.",
+     examples:"Hallelujah (Leonard Cohen) — coda. Yesterday (Beatles) — dernière phrase."},
+    {name:'Cadence phrygienne', formula:'i → V/III', chords:[['C','Mineures'],['E','Dom. 7']], color:'#EF4444',
+     feel:"Dramatique, oriental, flamenco.",
+     desc:"Mouvement d'un demi-ton vers le bas dans la basse. Couleur espagnole très caractéristique.",
+     usage:"Musique espagnole, flamenco, metal, passages dramatiques. Pour un impact émotionnel fort.",
+     examples:"Intro de Stairway to Heaven (Led Zeppelin). Flamenco traditionnel."},
+  ];
+
+  const QUIZ_QUESTIONS=[
+    {question:"Quelle cadence donne la sensation de 'point final' le plus fort ?",
+     options:["Plagale IV→I","Imparfaite I→V","Parfaite V→I","Déceptive V→vi"],
+     correct:2,explanation:"La cadence parfaite V→I est la conclusion harmonique la plus forte car elle résout la tension maximale (le triton du V7) sur la stabilité totale du I."},
+    {question:"La cadence déceptive V→vi surprend car...",
+     options:["Le V est joué trop fort","L'oreille attendait I mais reçoit vi","Le vi est dissonant","La progression est trop rapide"],
+     correct:1,explanation:"Après un V7, l'oreille anticipe le I. Résoudre sur vi (relatif mineur) crée une surprise émotionnelle douce — la musique évite la conclusion attendue."},
+    {question:"Quelle cadence est associée à l'Amen des hymnes ?",
+     options:["Parfaite","Plagale","Imparfaite","Phrygienne"],
+     correct:1,explanation:"La cadence plagale IV→I est appelée 'cadence d'Amen' car elle conclut les hymnes religieux depuis des siècles. Sa résolution est douce et apaisée."},
+  ];
+
+  if(showQuiz) return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <button onClick={()=>setShowQuiz(false)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:11,fontFamily:'monospace'}}>← RETOUR AU COURS</button>
+      </div>
+      <CourseQuiz questions={QUIZ_QUESTIONS} courseTitle="Cadences" color="#06B6D4" onClose={()=>setShowQuiz(false)}/>
+    </div>
+  );
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <h3 style={{fontSize:20,fontWeight:'bold',margin:0,background:'linear-gradient(90deg,#06B6D4,#A78BFA)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Cadences</h3>
+        <button onClick={()=>setShowQuiz(true)} style={{padding:'.4rem .85rem',background:'rgba(6,182,212,0.15)',border:'1px solid rgba(6,182,212,0.4)',color:'#06B6D4',borderRadius:9,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',flexShrink:0,marginLeft:8}}>🎯 QUIZ</button>
+      </div>
+      <div style={{padding:'1rem',background:'rgba(6,182,212,0.07)',border:'1px solid rgba(6,182,212,0.2)',borderRadius:12}}>
+        <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',margin:0}}>
+          Une {M("cadence","Une cadence est une formule harmonique de conclusion — comme la ponctuation dans une phrase écrite. Elle indique à l'auditeur si la phrase musicale est terminée (point), suspendue (virgule) ou surprise (point d'exclamation). Maîtriser les cadences = maîtriser le découpage de la musique.")} est une succession d'accords qui conclut une phrase musicale. Elle donne à l'auditeur une indication claire sur l'état de la musique : repos, tension, surprise. Clique sur 🔊 pour entendre chaque cadence en Do majeur.
+        </p>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+        {CADENCES.map((cad,i)=>(
+          <div key={i} style={{padding:'1rem',background:`${cad.color}08`,border:`1px solid ${cad.color}30`,borderRadius:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.75rem'}}>
+              <div>
+                <div style={{fontSize:15,fontWeight:'bold',color:cad.color,fontFamily:'Georgia,serif',marginBottom:2}}>{cad.name}</div>
+                <div style={{fontSize:12,fontFamily:'monospace',color:`${cad.color}`,marginBottom:4}}>{cad.formula}</div>
+                <div style={{fontSize:12,fontStyle:'italic',opacity:.7,fontFamily:'Georgia,serif'}}>{cad.feel}</div>
+              </div>
+              <button onClick={()=>!playing&&playCadence(cad.chords)} disabled={!!playing}
+                style={{background:`${cad.color}08`,border:`1px solid ${cad.color}30`,color:cad.color,padding:'.4rem .8rem',borderRadius:8,cursor:playing?'default':'pointer',fontSize:10,fontFamily:'monospace',flexShrink:0,transition:'all 0.2s'}}>
+                {playing?'▶…':'🔊'}
+              </button>
+            </div>
+            <p style={{fontSize:12.5,opacity:.7,lineHeight:1.6,margin:'0 0 .5rem',fontFamily:'Georgia,serif'}}>{cad.desc}</p>
+            <div style={{fontSize:11,opacity:.5,fontFamily:'monospace',marginBottom:'.3rem'}}>UTILISATION : {cad.usage}</div>
+            <div style={{fontSize:11,opacity:.45,fontFamily:'Georgia,serif',fontStyle:'italic'}}>Ex : {cad.examples}</div>
+          </div>
+        ))}
+      </div>
+      {defWord&&<MascoтteDefinitionPopup word={defWord} definition={defText} onClose={()=>{setDefWord(null);setDefText(null);}}/>}
+    </div>
+  );
+}
+
+// ── Cours 6 : ii-V-I jazz ─────────────────────────────────────────────────────
+function CoursIIVI() {
+  const [defWord,setDefWord]=useState(null);
+  const [defText,setDefText]=useState(null);
+  const [showQuiz,setShowQuiz]=useState(false);
+  const [playing,setPlaying]=useState(false);
+  const M=(word,def,color='#8B5CF6')=><MotCle color={color} onClickWord={(w,d)=>{setDefWord(w);setDefText(d);}} definition={def}>{word}</MotCle>;
+
+  async function playProg(chords) {
+    if(playing)return; setPlaying(true);
+    for(const [root,type] of chords){
+      const ri=CHROMATIC.indexOf(root);
+      if(ri===-1)continue;
+      playChordArp(CHORD_TYPES[type].formula.map(f=>ri+f+4*12));
+      await new Promise(r=>setTimeout(r,1400));
+    }
+    setPlaying(false);
+  }
+
+  const QUIZ_QUESTIONS=[
+    {question:"Dans le ii-V-I en Do majeur, quel est l'accord ii ?",
+     options:["Ré majeur","Ré mineur 7","Fa majeur","Sol 7"],
+     correct:1,explanation:"Le ii en Do majeur est Ré mineur 7 (Ré-Fa-La-Do). C'est le 2e degré de la gamme de Do harmonisé — naturellement mineur avec une 7e mineure."},
+    {question:"Pourquoi le ii-V-I est-il fondamental en jazz ?",
+     options:["Car c'est la plus longue progression","Car elle contient toutes les notes d'une gamme","Car elle crée tension (ii-V) puis résolution (I), le mouvement harmonique fondamental","Car elle est facile à jouer"],
+     correct:2,explanation:"Le ii prépare, le V crée la tension maximale avec son triton, et le I résout. C'est le mouvement harmonique fondamental de la musique tonale, condensé en 3 accords."},
+    {question:"Qu'est-ce qu'une substitution de triton ?",
+     options:["Remplacer le I par son relatif mineur","Remplacer le V7 par l'accord situé un triton plus bas","Jouer les accords plus vite","Transposer la progression"],
+     correct:1,explanation:"La substitution de triton remplace G7 par Db7 (un triton = 6 demi-tons plus bas). Ces deux accords partagent les mêmes notes de tension (Si et Fa), ce qui permet la substitution sans perdre la résolution."},
+  ];
+
+  if(showQuiz) return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <button onClick={()=>setShowQuiz(false)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:11,fontFamily:'monospace'}}>← RETOUR AU COURS</button>
+      </div>
+      <CourseQuiz questions={QUIZ_QUESTIONS} courseTitle="ii-V-I Jazz" color="#8B5CF6" onClose={()=>setShowQuiz(false)}/>
+    </div>
+  );
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <h3 style={{fontSize:20,fontWeight:'bold',margin:0,background:'linear-gradient(90deg,#8B5CF6,#F7DC6F)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>ii-V-I : L'ADN du jazz</h3>
+        <button onClick={()=>setShowQuiz(true)} style={{padding:'.4rem .85rem',background:'rgba(139,92,246,0.15)',border:'1px solid rgba(139,92,246,0.4)',color:'#8B5CF6',borderRadius:9,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',flexShrink:0,marginLeft:8}}>🎯 QUIZ</button>
+      </div>
+
+      <div style={{padding:'1rem',background:'rgba(139,92,246,0.08)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:12}}>
+        <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',margin:0}}>
+          La progression {M("ii-V-I","Le ii-V-I est la progression harmonique la plus importante du jazz. Elle représente le mouvement tension→résolution dans sa forme la plus pure. On la retrouve dans 80% des standards jazz. La maîtriser dans les 12 tonalités est l'exercice quotidien de tout jazzman.")} est la colonne vertébrale du jazz. Toutes les ballades, tous les standards de Coltrane, Miles Davis, Bill Evans reposent sur cette progression. Elle concentre le mouvement harmonique fondamental : sous-dominante → dominante → tonique.
+        </p>
+      </div>
+
+      {/* Visual chord display */}
+      <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+        <div style={{fontSize:10,color:'#8B5CF6',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.85rem'}}>ii-V-I EN DO MAJEUR</div>
+        <div style={{display:'flex',gap:8,marginBottom:'1rem',flexWrap:'wrap'}}>
+          {[
+            {d:'ii',name:"Dm7",notes:"Ré Fa La Do",color:'#A78BFA',role:'Prépare, s\'éloigne'},
+            {d:'V7',name:"G7", notes:"Sol Si Ré Fa",color:'#EF4444',role:'Tension maximale'},
+            {d:'Imaj7',name:"Cmaj7",notes:"Do Mi Sol Si",color:'#82E0AA',role:'Résolution, repos'},
+          ].map((c,i)=>(
+            <div key={i} style={{flex:1,minWidth:90,padding:'.85rem',background:`${c.color}`,border:`1.5px solid ${c.color}`,borderRadius:12,textAlign:'center'}}>
+              <div style={{fontSize:10,color:c.color,fontFamily:'monospace',opacity:.7,marginBottom:4}}>{c.d}</div>
+              <div style={{fontSize:20,fontWeight:'bold',color:c.color,fontFamily:'monospace',lineHeight:1,marginBottom:4}}>{c.name}</div>
+              <div style={{fontSize:9,opacity:.5,fontFamily:'monospace',marginBottom:4}}>{c.notes}</div>
+              <div style={{fontSize:10,opacity:.6,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{c.role}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{display:'flex',gap:8}}>
+          <button onClick={()=>playProg([['D','Min. 7'],['G','Dom. 7'],['C','Maj. 7']])} disabled={playing}
+            style={{flex:1,padding:'.65rem',background:'rgba(139,92,246,0.12)',border:'1px solid rgba(139,92,246,0.4)',color:'#A78BFA',borderRadius:10,cursor:playing?'default':'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold'}}>
+            {playing?'▶ EN COURS…':'▶ ÉCOUTER ii-V-I en Do'}
+          </button>
+        </div>
+      </div>
+
+      {[
+        {title:"Pourquoi ça fonctionne ?", color:'#A78BFA',
+         content:`Le ii7 (${M("Ré mineur 7","Ré-Fa-La-Do. Il contient la même quinte (Fa-La) que Fa majeur (IV), ce qui explique sa fonction sous-dominante. La 7e Do le relie au I qui suit.","#A78BFA")}) prépare harmoniquement. Le V7 (${M("Sol 7","Sol-Si-Ré-Fa. Il contient le triton Si-Fa. Si veut monter vers Do (sensible), Fa veut descendre vers Mi. Ce double mouvement par demi-ton crée la tension la plus forte possible.","#EF4444")}) crée une tension explosive avec son triton. Le ${M("Imaj7","Do-Mi-Sol-Si. La 7e majeure Si lui donne une couleur rêveuse, suspendue — signature du jazz. Plus sophistiqué que le simple accord de Do.","#82E0AA")} résout et repose.`},
+        {title:"Dans les 12 tonalités", color:'#F7DC6F',
+         content:"Un musicien de jazz doit jouer ii-V-I dans TOUTES les tonalités. C'est l'exercice de base. En Sol : Am7-D7-Gmaj7. En Fa : Gm7-C7-Fmaj7. En Si♭ : Cm7-F7-B♭maj7. Le cycle des quintes dicte l'ordre d'apprentissage."},
+        {title:"La substitution de triton", color:'#EF4444',
+         content:"Le triton permet une substitution élégante : G7 remplacé par D♭7. La basse descend par demi-tons (G-G♭-F), créant un mouvement chromatique fluide très apprécié en jazz moderne."},
+        {title:"ii-V-I mineur", color:'#C39BD3',
+         content:"En mineur, la progression change légèrement : iim7♭5 - V7alt - im(maj7). Ex en La mineur : Bm7♭5 - E7alt - Am(maj7). Le V7alt contient des tensions altérées (♭9, #9, ♭13) qui intensifient la couleur mineure."},
+      ].map((s,i)=>(
+        <div key={i} style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:`1px solid ${s.color}22`,borderRadius:12}}>
+          <div style={{fontSize:14,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif',marginBottom:'.65rem'}}>{s.title}</div>
+          <p style={{fontSize:13,opacity:.75,lineHeight:1.75,margin:0,fontFamily:'Georgia,serif'}}>{s.content}</p>
+        </div>
+      ))}
+      {defWord&&<MascoтteDefinitionPopup word={defWord} definition={defText} onClose={()=>{setDefWord(null);setDefText(null);}}/>}
+    </div>
+  );
+}
+
+// ── Cours 7 : Borrowed chords ─────────────────────────────────────────────────
+function CoursBorrowedChords() {
+  const [defWord,setDefWord]=useState(null);
+  const [defText,setDefText]=useState(null);
+  const [showQuiz,setShowQuiz]=useState(false);
+  const [playing,setPlaying]=useState(false);
+  const M=(word,def,color='#10B981')=><MotCle color={color} onClickWord={(w,d)=>{setDefWord(w);setDefText(d);}} definition={def}>{word}</MotCle>;
+
+  async function playProg(chords) {
+    if(playing)return; setPlaying(true);
+    for(const [root,type] of chords){
+      const ri=CHROMATIC.indexOf(root);
+      if(ri===-1)continue;
+      playChordArp(CHORD_TYPES[type].formula.map(f=>ri+f+4*12));
+      await new Promise(r=>setTimeout(r,1300));
+    }
+    setPlaying(false);
+  }
+
+  const QUIZ_QUESTIONS=[
+    {question:"Qu'est-ce qu'un 'borrowed chord' ?",
+     options:["Un accord joué par un autre musicien","Un accord emprunté à une autre tonalité ou mode","Un accord difficile à jouer","Un accord de jazz uniquement"],
+     correct:1,explanation:"Un borrowed chord (accord emprunté) est un accord issu d'une tonalité parallèle (ex: mineur de Do dans Do majeur). Il apporte une couleur inattendue sans sortir complètement du contexte tonal."},
+    {question:"Le ♭VII est emprunté de quelle gamme (en Do majeur) ?",
+     options:["Do mineur harmonique","Do mineur naturel (éolien)","Do lydien","Do phrygien"],
+     correct:1,explanation:"En Do majeur, Si♭ majeur (♭VII) vient de Do mineur naturel où Si est bémolisé. Cet accord est très courant en rock et pop — il donne une couleur sombre et puissante."},
+    {question:"Quelle progression utilise un accord de sous-dominante mineure emprunté ?",
+     options:["I-IV-V-I","I-V-vi-IV","I-IV-iv-I","I-ii-V-I"],
+     correct:2,explanation:"Dans I-IV-iv-I, le iv (sous-dominante mineure) est emprunté au mode mineur. Ex: Do-Fa-Fm-Do. Le passage Fa→Fa mineur crée une descente chromatique très émouvante (Mi→Mi♭ dans la voix médiane)."},
+  ];
+
+  if(showQuiz) return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <button onClick={()=>setShowQuiz(false)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:11,fontFamily:'monospace'}}>← RETOUR AU COURS</button>
+      </div>
+      <CourseQuiz questions={QUIZ_QUESTIONS} courseTitle="Borrowed Chords" color="#10B981" onClose={()=>setShowQuiz(false)}/>
+    </div>
+  );
+
+  return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+        <h3 style={{fontSize:20,fontWeight:'bold',margin:0,background:'linear-gradient(90deg,#10B981,#06B6D4)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>Borrowed Chords</h3>
+        <button onClick={()=>setShowQuiz(true)} style={{padding:'.4rem .85rem',background:'rgba(16,185,129,0.15)',border:'1px solid rgba(16,185,129,0.4)',color:'#10B981',borderRadius:9,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',flexShrink:0,marginLeft:8}}>🎯 QUIZ</button>
+      </div>
+
+      <div style={{padding:'1rem',background:'rgba(16,185,129,0.08)',border:'1px solid rgba(16,185,129,0.2)',borderRadius:12}}>
+        <p style={{fontSize:13.5,lineHeight:1.8,opacity:.82,fontFamily:'Georgia,serif',margin:0}}>
+          Les {M("borrowed chords","Un borrowed chord est un accord 'emprunté' à une tonalité parallèle. Do majeur peut emprunter des accords à Do mineur (même tonique, mode différent). Cette technique permet d'enrichir une progression sans modulation complète — juste une 'visite' dans l'ombre.")} sont des accords empruntés au mode {M("parallèle","Le mode parallèle partage la même tonique mais pas les mêmes notes. Do majeur et Do mineur sont parallèles (même Do, mais notes différentes). À ne pas confondre avec le relatif (même notes, tonique différente — Do majeur et La mineur).","#A78BFA")}. Ils introduisent une note chromatique inattendue qui enrichit la couleur sans sortir du contexte tonal. Très utilisés en pop, rock, R&B et jazz moderne.
+        </p>
+      </div>
+
+      {[
+        {title:"♭VII — L'accord de rock", chord:"Si♭ en Do majeur", color:'#EF4444', borrowed:"Do mineur éolien",
+         chords:[['C','Majeures'],['Bb','Majeures'],['C','Majeures']],
+         desc:"Le Si♭ majeur (♭VII) apporté du mode mineur donne un effet massif, puissant. C'est l'accord signature du rock classique.",
+         example:"Sweet Home Alabama — I-♭VII-IV. Hey Jude (Beatles) — ♭VII dans le na-na-na."},
+        {title:"iv — La sous-dominante mineure", chord:"Fa mineur en Do majeur", color:'#A78BFA', borrowed:"Do mineur naturel",
+         chords:[['C','Majeures'],['F','Majeures'],['F','Mineures'],['C','Majeures']],
+         desc:"La progression I-IV-iv-I crée une descente chromatique poignante (Mi→Mi♭). Son effet émotionnel est immédiat et universel.",
+         example:"The Beatles - In My Life (pont). Pink Floyd - Comfortably Numb. Très courant en R&B."},
+        {title:"♭VI — L'accord cinématique", chord:"La♭ en Do majeur", color:'#8B5CF6', borrowed:"Do mineur naturel",
+         chords:[['C','Majeures'],['Ab','Majeures'],['G','Dom. 7'],['C','Majeures']],
+         desc:"L'accord ♭VI introduit une couleur sombre et grandiose. Sa résolution vers V puis I crée un effet 'épique' très prisé en musique de film.",
+         example:"Hans Zimmer l'utilise constamment. Canon de Pachelbel à l'envers. Nombreuses ballades pop."},
+        {title:"♭III — La tierce mineure empruntée", chord:"Mi♭ en Do majeur", color:'#F7DC6F', borrowed:"Do mineur naturel",
+         chords:[['C','Majeures'],['Eb','Majeures'],['F','Majeures'],['C','Majeures']],
+         desc:"Le ♭III apporte une couleur chaleureuse et inattendue. Il fonctionne particulièrement bien entre I et IV.",
+         example:"Oh! Darling (Beatles). Nombreux standards de Stevie Wonder. Jazz soul."},
+      ].map((s,i)=>(
+        <div key={i} style={{padding:'1rem',background:`${s.color}08`,border:`1px solid ${s.color}`,borderRadius:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.65rem'}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif',marginBottom:2}}>{s.title}</div>
+              <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                <span style={{fontSize:10,fontFamily:'monospace',color:`${s.color}`,padding:'2px 7px',background:`${s.color}08`,borderRadius:6}}>{s.chord}</span>
+                <span style={{fontSize:10,fontFamily:'monospace',opacity:.45,padding:'2px 7px',background:'rgba(255,255,255,0.05)',borderRadius:6}}>emprunté à {s.borrowed}</span>
+              </div>
+            </div>
+            <button onClick={()=>playProg(s.chords)} disabled={playing}
+              style={{background:`${s.color}08`,border:`1px solid ${s.color}`,color:s.color,padding:'.35rem .75rem',borderRadius:8,cursor:playing?'default':'pointer',fontSize:10,fontFamily:'monospace',flexShrink:0,marginLeft:8}}>
+              {playing?'▶…':'🔊'}
+            </button>
+          </div>
+          <p style={{fontSize:12.5,opacity:.72,lineHeight:1.6,margin:'0 0 .4rem',fontFamily:'Georgia,serif'}}>{s.desc}</p>
+          <div style={{fontSize:11,opacity:.5,fontFamily:'Georgia,serif',fontStyle:'italic'}}>Ex : {s.example}</div>
+        </div>
+      ))}
+      {defWord&&<MascoтteDefinitionPopup word={defWord} definition={defText} onClose={()=>{setDefWord(null);setDefText(null);}}/>}
+    </div>
+  );
+}
+
 function TheoriePage() {
-  const [section, setSection] = useState('main'); // main | exercices | exSub
+  const [section, setSection] = useState('main');
   const [exSub,   setExSub]   = useState(null);
+  const [course,  setCourse]  = useState(null);
+
+  const COURSE_TITLES = {
+    gammes:"Gammes et modes",intervalles:"Intervalles",accords:"Construction des accords",
+    fonctions:"Fonctions harmoniques",cadences:"Cadences",iivi:"ii-V-I Jazz",borrowed:"Borrowed Chords"
+  };
+  const COURSE_COLORS = {gammes:'#C39BD3',intervalles:'#85C1E9',accords:'#F7DC6F',fonctions:'#F1948A',cadences:'#06B6D4',iivi:'#8B5CF6',borrowed:'#10B981'};
 
   const CATEGORIES = [
     { title:'Harmonie classique', color:'#C39BD3', icon:'🎼', items:[
-      {name:'Gammes et modes',          desc:'Majeur, mineur, modes grecs'},
-      {name:'Intervalles',              desc:'Secondes, tierces, quintes...'},
-      {name:'Construction des accords', desc:'Triades, accords de 7e'},
-      {name:'Fonctions harmoniques',    desc:'Tonique, sous-dominante, dominante'},
-      {name:'Cadences',                 desc:'Parfaite, rompue, à la dominante'},
+      {name:'Gammes et modes',          desc:'Majeur, mineur, modes grecs',         courseId:'gammes'},
+      {name:'Intervalles',              desc:'Secondes, tierces, quintes...',        courseId:'intervalles'},
+      {name:'Construction des accords', desc:'Triades, accords de 7e',              courseId:'accords'},
+      {name:'Fonctions harmoniques',    desc:'Tonique, sous-dominante, dominante',   courseId:'fonctions'},
+      {name:'Cadences',                 desc:'Parfaite, rompue, plagale...',          courseId:'cadences'},
       {name:'Modulation',               desc:'Changer de tonalité'},
     ]},
     { title:'Théorie Jazz', color:'#F7DC6F', icon:'🎷', items:[
-      {name:'Extensions d\'accords',    desc:'9e, 11e, 13e et altérations'},
+      {name:"ii-V-I et variations",     desc:"La progression fondamentale du jazz",  courseId:'iivi'},
+      {name:"Borrowed chords",          desc:"Emprunter des accords d'autres modes", courseId:'borrowed'},
+      {name:"Extensions d'accords",     desc:'9e, 11e, 13e et altérations'},
       {name:'Substitutions',            desc:'Triton, sous-dominante mineure'},
-      {name:'ii-V-I et variations',     desc:'La progression fondamentale'},
       {name:'Modes appliqués au jazz',  desc:'Dorien, mixolydien, lydien...'},
       {name:'Réharmonisation',          desc:'Enrichir une grille simple'},
     ]},
     { title:'Composition', color:'#85C1E9', icon:'✍', items:[
       {name:'Forme et structure',       desc:'ABA, couplet-refrain, rondo'},
-      {name:'Contrepoint',              desc:'Voix indépendantes qui s\'harmonisent'},
+      {name:'Contrepoint',              desc:"Voix indépendantes qui s'harmonisent"},
       {name:'Orchestration',            desc:'Distribuer les voix et timbres'},
-      {name:'Borrowed chords',          desc:'Emprunter des accords d\'autres tonalités'},
     ]},
     { title:'Acoustique musicale', color:'#82E0AA', icon:'🔊', items:[
       {name:'Série harmonique',         desc:'Pourquoi certains accords sonnent bien'},
@@ -4948,8 +6258,31 @@ function TheoriePage() {
     ]},
   ];
 
-  // Sub-section exercices
-  if (section === 'exercices') {
+  // Course view
+  if (course) {
+    const courseColor = COURSE_COLORS[course] || '#C39BD3';
+    return(
+      <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',background:'rgba(13,11,30,0.8)',flexShrink:0}}>
+          <button onClick={()=>setCourse(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,padding:'4px 8px',borderRadius:6,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}>← THÉORIE</button>
+          <span style={{opacity:.2}}>|</span>
+          <span style={{fontSize:11,fontFamily:'monospace',color:courseColor,letterSpacing:'.06em'}}>{COURSE_TITLES[course]?.toUpperCase()}</span>
+        </div>
+        <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+          {course==='gammes'      && <CoursGammesModes/>}
+          {course==='intervalles' && <CoursIntervalles/>}
+          {course==='accords'     && <CoursConstructionAccords/>}
+          {course==='fonctions'   && <CoursFonctionsHarmoniques/>}
+          {course==='cadences'    && <CoursCadences/>}
+          {course==='iivi'        && <CoursIIVI/>}
+          {course==='borrowed'    && <CoursBorrowedChords/>}
+        </div>
+      </div>
+    );
+  }
+
+  // Exercices view
+  if (section==='exercices') {
     if (exSub) {
       return(
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
@@ -4959,8 +6292,8 @@ function TheoriePage() {
             <span style={{fontSize:11,fontFamily:'monospace',color:exSub==='solfege'?'#F7DC6F':'#85C1E9',letterSpacing:'.06em'}}>{exSub==='solfege'?'SYMBOLES MUSICAUX':'LECTURE DE PARTITION'}</span>
           </div>
           <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-            {exSub==='solfege'  && <SymbolesMusique/>}
-            {exSub==='lecture'  && <LectureExercice/>}
+            {exSub==='solfege' && <SymbolesMusique/>}
+            {exSub==='lecture' && <LectureExercice/>}
           </div>
         </div>
       );
@@ -4976,15 +6309,15 @@ function TheoriePage() {
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
           {[
-            {id:'solfege', icon:'🎵', title:'Symboles Musicaux', sub:'Clés · Silences · Valeurs · Chiffrage · Nuances', color:'#F7DC6F',
-             desc:'Apprends à reconnaître tous les symboles d\'une partition. 21 symboles classés, exercice d\'identification.'},
-            {id:'lecture', icon:'📖', title:'Lecture de Partition', sub:'Identifier les notes en solfège', color:'#85C1E9',
-             desc:'Lis des mélodies sur portée et identifie chaque note. Mélodies fixes et générées aléatoirement.'},
+            {id:'solfege',icon:'🎵',title:'Symboles Musicaux',sub:'Clés · Silences · Valeurs · Chiffrage · Nuances',color:'#F7DC6F',
+             desc:"Apprends à reconnaître tous les symboles d'une partition. 21 symboles classés, exercice d'identification."},
+            {id:'lecture',icon:'📖',title:'Lecture de Partition',sub:'Identifier les notes en solfège',color:'#85C1E9',
+             desc:"Lis des mélodies sur portée et identifie chaque note. Mélodies fixes et générées aléatoirement."},
           ].map(m=>(
             <button key={m.id} onClick={()=>setExSub(m.id)}
-              style={{background:`${m.color}08`,border:`1.5px solid ${m.color}35`,borderRadius:14,padding:'1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}
-              onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 8px 20px ${m.color}25`;}}
-              onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}35`;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
+              style={{background:`${m.color}08`,border:`1.5px solid ${m.color}`,borderRadius:14,padding:'1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}
+              onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 8px 20px ${m.color}`;}}
+              onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
               <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
                 <span style={{fontSize:28}}>{m.icon}</span>
                 <div>
@@ -5000,7 +6333,7 @@ function TheoriePage() {
     );
   }
 
-  // ── MAIN ─────────────────────────────────────────────────────────────────────
+  // ── MAIN PAGE ────────────────────────────────────────────────────────────────
   return (
     <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
       <div style={{marginBottom:'1.5rem'}}>
@@ -5008,7 +6341,7 @@ function TheoriePage() {
         <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>COMPRENDRE LA MUSIQUE EN PROFONDEUR</p>
       </div>
 
-      {/* Exercices théoriques — bouton mis en avant */}
+      {/* Exercices théoriques button */}
       <button onClick={()=>setSection('exercices')}
         style={{width:'100%',marginBottom:'1.5rem',background:'linear-gradient(135deg,rgba(247,220,111,0.15),rgba(133,193,233,0.1))',border:'1.5px solid rgba(247,220,111,0.4)',borderRadius:14,padding:'1rem 1.25rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',display:'flex',alignItems:'center',justifyContent:'space-between'}}
         onMouseEnter={e=>{e.currentTarget.style.background='linear-gradient(135deg,rgba(247,220,111,0.22),rgba(133,193,233,0.16))';e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(247,220,111,0.2)';}}
@@ -5023,28 +6356,34 @@ function TheoriePage() {
         <span style={{fontSize:16,color:'rgba(247,220,111,0.6)'}}>→</span>
       </button>
 
-      <div style={{padding:'.85rem 1rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.18)',borderRadius:10,marginBottom:'1.5rem'}}>
-        <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.3rem'}}>EN COURS DE RÉDACTION</div>
-        <p style={{fontSize:12,opacity:.5,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>Les chapitres de cours seront ajoutés progressivement, avec exemples sonores et visuels interactifs.</p>
-      </div>
-
+      {/* Course categories */}
       <div style={{display:'flex',flexDirection:'column',gap:10}}>
         {CATEGORIES.map((cat,ci)=>(
-          <div key={ci} style={{background:'rgba(255,255,255,0.025)',border:`0.5px solid ${cat.color}25`,borderRadius:12,overflow:'hidden'}}>
-            <div style={{padding:'.85rem 1rem',background:`${cat.color}08`,display:'flex',alignItems:'center',gap:10}}>
+          <div key={ci} style={{background:'rgba(255,255,255,0.025)',border:`0.5px solid ${cat.color}`,borderRadius:12,overflow:'hidden'}}>
+            <div style={{padding:'.85rem 1rem',background:`${cat.color}`,display:'flex',alignItems:'center',gap:10}}>
               <span style={{fontSize:20}}>{cat.icon}</span>
               <span style={{fontSize:14,fontWeight:'bold',color:cat.color,fontFamily:'Georgia,serif'}}>{cat.title}</span>
             </div>
             <div style={{display:'flex',flexDirection:'column'}}>
-              {cat.items.map((item,ii)=>(
-                <div key={ii} style={{padding:'.7rem 1rem',borderTop:'0.5px solid rgba(255,255,255,0.05)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                  <div>
-                    <div style={{fontSize:13,fontFamily:'Georgia,serif',color:'rgba(255,255,255,0.65)',marginBottom:2}}>{item.name}</div>
-                    <div style={{fontSize:10,opacity:.3,fontFamily:'monospace'}}>{item.desc}</div>
+              {cat.items.map((item,ii)=>{
+                const hasCourse=!!item.courseId;
+                return(
+                  <div key={ii}
+                    onClick={hasCourse?()=>setCourse(item.courseId):undefined}
+                    style={{padding:'.75rem 1rem',borderTop:'0.5px solid rgba(255,255,255,0.05)',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:hasCourse?'pointer':'default',transition:'all 0.2s',background:hasCourse?'transparent':'transparent'}}
+                    onMouseEnter={e=>{if(hasCourse)e.currentTarget.style.background=`${cat.color}`;}}
+                    onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}>
+                    <div>
+                      <div style={{fontSize:13,fontFamily:'Georgia,serif',color:hasCourse?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.55)',marginBottom:2,fontWeight:hasCourse?'600':'normal'}}>{item.name}</div>
+                      <div style={{fontSize:10,opacity:.35,fontFamily:'monospace'}}>{item.desc}</div>
+                    </div>
+                    {hasCourse
+                      ? <span style={{fontSize:10,fontFamily:'monospace',color:cat.color,border:`0.5px solid ${cat.color}`,padding:'2px 7px',borderRadius:6,flexShrink:0,marginLeft:8}}>LIRE →</span>
+                      : <span style={{fontSize:8,fontFamily:'monospace',color:'rgba(255,255,255,0.2)',border:'0.5px solid rgba(255,255,255,0.08)',padding:'2px 5px',borderRadius:4,flexShrink:0,marginLeft:8}}>BIENTÔT</span>
+                    }
                   </div>
-                  <span style={{fontSize:8,fontFamily:'monospace',color:'rgba(255,255,255,0.2)',border:'0.5px solid rgba(255,255,255,0.08)',padding:'2px 5px',borderRadius:4,flexShrink:0,marginLeft:8}}>BIENTÔT</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         ))}
@@ -5160,7 +6499,7 @@ function ApprentissagePage({sub,setSub}){
       </>}
       {/* Bouton re-afficher les conseils */}
       {CATEGORY_TIPS[catTipKey] && (
-        <button onClick={()=>setShowCatTip(catTipKey)} style={{marginLeft:'auto',background:'transparent',border:`0.5px solid ${info?.color}40`,color:`${info?.color}80`,padding:'3px 8px',borderRadius:2,cursor:'pointer',fontSize:9,fontFamily:'monospace',letterSpacing:'.06em',transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color=info?.color} onMouseLeave={e=>e.currentTarget.style.color=`${info?.color}80`}>
+        <button onClick={()=>setShowCatTip(catTipKey)} style={{marginLeft:'auto',background:'transparent',border:`0.5px solid ${info?.color}`,color:`${info?.color}`,padding:'3px 8px',borderRadius:2,cursor:'pointer',fontSize:9,fontFamily:'monospace',letterSpacing:'.06em',transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color=info?.color} onMouseLeave={e=>e.currentTarget.style.color=`${info?.color}`}>
           💡 CONSEILS
         </button>
       )}
@@ -5310,7 +6649,18 @@ function JournalPage() {
 }
 
 // ── Compétences Page ──────────────────────────────────────────────────────────
-function CompetencesPage({skills,instrument,setInstrument,stats}){
+function CompetencesPage({skills,instrument,setInstrument,stats,onNavigate}){
+  const [editGoals, setEditGoals] = useState(false);
+  const streak = computeStreak(stats);
+  const streakColor = streak>=7?'#F59E0B':streak>=3?'#82E0AA':'#A78BFA';
+
+  const WEEKLY_GOAL_DEFS = [
+    {id:'oreille',     label:'Exercices Oreille',   icon:'👂', color:'#85C1E9', target:3},
+    {id:'technique',   label:'Sessions Technique',  icon:'✎',  color:'#82E0AA', target:3},
+    {id:'theorie',     label:'Sessions Théorie',    icon:'📖', color:'#F7DC6F', target:2},
+    {id:'harmonie',    label:'Sessions Harmonie',   icon:'🎷', color:'#F1948A', target:1},
+  ];
+
   const STAT_CARDS=[
     {label:'Temps de jeu', value:formatTime(stats.totalSeconds), icon:'⏱', grad:'linear-gradient(135deg,#8B5CF6,#6D28D9)', glow:'139,92,246'},
     {label:'Exercices',    value:stats.totalExercises||0,         icon:'✓',  grad:'linear-gradient(135deg,#06B6D4,#0284C7)', glow:'6,182,212'},
@@ -5318,6 +6668,63 @@ function CompetencesPage({skills,instrument,setInstrument,stats}){
     {label:'Clés',         value:`🗝️ ${stats.keys||0}`,           icon:'🗝️', grad:'linear-gradient(135deg,#F59E0B,#D97706)', glow:'245,158,11'},
   ];
   return(<div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
+
+    {/* Streak banner */}
+    {streak>0 && (
+      <div style={{marginBottom:'1.25rem',padding:'1rem 1.25rem',background:streak>=7?'linear-gradient(135deg,rgba(245,158,11,0.15),rgba(239,68,68,0.1))':streak>=3?'linear-gradient(135deg,rgba(130,224,170,0.12),rgba(6,182,212,0.08))':'rgba(255,255,255,0.04)',border:`1px solid ${streakColor}`,borderRadius:14,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:30,animation:streak>=7?'streakPulse 1.5s ease-in-out infinite':undefined}}>{streak>=7?'🔥':streak>=3?'⚡':'✦'}</span>
+          <div>
+            <div style={{fontSize:16,fontWeight:'bold',color:streakColor,fontFamily:'Georgia,serif'}}>{streak} jour{streak>1?'s':''} consécutif{streak>1?'s':''}</div>
+            <div style={{fontSize:10,opacity:.55,fontFamily:'monospace'}}>{streak>=7?'Incroyable ! Continue comme ça !':streak>=3?'Belle série — ne la brise pas !':'Bonne habitude, continue !'}</div>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:2}}>
+          {[...Array(Math.min(7,streak))].map((_,i)=>(
+            <div key={i} style={{width:8,height:8,borderRadius:'50%',background:streakColor,opacity:1-i*0.08}}/>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* Weekly goals */}
+    <div style={{marginBottom:'1.25rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:16}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.85rem'}}>
+        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.4,fontFamily:'monospace'}}>OBJECTIFS HEBDOMADAIRES</div>
+        <button onClick={()=>setEditGoals(v=>!v)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.35)',cursor:'pointer',fontSize:10,fontFamily:'monospace',padding:'2px 6px',borderRadius:6,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.35)'}>
+          {editGoals?'✓ FERMER':'⚙ MODIFIER'}
+        </button>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        {WEEKLY_GOAL_DEFS.map(g=>{
+          const done=(stats.weeklyGoals||{})[g.id]||0;
+          const pct=Math.min(100,Math.round((done/g.target)*100));
+          const complete=done>=g.target;
+          return(
+            <div key={g.id} style={{padding:'.75rem',background:complete?`${g.color}`:'rgba(255,255,255,0.03)',border:`1px solid ${complete?g.color+'40':'rgba(255,255,255,0.08)'}`,borderRadius:12,transition:'all 0.3s'}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:'.5rem'}}>
+                <div style={{display:'flex',gap:5,alignItems:'center'}}>
+                  <span style={{fontSize:13}}>{g.icon}</span>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:complete?g.color:'rgba(255,255,255,0.55)',letterSpacing:'.03em'}}>{g.label}</span>
+                </div>
+                <span style={{fontSize:10,fontFamily:'monospace',color:complete?g.color:'rgba(255,255,255,0.4)',fontWeight:'bold'}}>{done}/{g.target}</span>
+              </div>
+              <div style={{height:4,background:'rgba(255,255,255,0.07)',borderRadius:2,overflow:'hidden'}}>
+                <div style={{height:'100%',width:`${pct}%`,background:g.color,borderRadius:2,transition:'width 0.5s ease',boxShadow:complete?`0 0 6px ${g.color}`:undefined}}/>
+              </div>
+              {complete && <div style={{fontSize:9,color:g.color,fontFamily:'monospace',marginTop:4,textAlign:'right'}}>✓ OBJECTIF ATTEINT</div>}
+            </div>
+          );
+        })}
+      </div>
+      {editGoals && (
+        <div style={{marginTop:'.85rem',padding:'.75rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:10,animation:'fadeIn 0.25s ease'}}>
+          <p style={{fontSize:11,opacity:.5,margin:'0 0 .5rem',fontFamily:'Georgia,serif',fontStyle:'italic'}}>Les objectifs se réinitialisent chaque lundi. Clique sur une section pour faire avancer tes compteurs.</p>
+          <button onClick={()=>{onNavigate&&onNavigate('apprentissage');setEditGoals(false);}} style={{padding:'.45rem .9rem',background:'rgba(139,92,246,0.15)',border:'1px solid rgba(139,92,246,0.35)',color:'#A78BFA',borderRadius:8,cursor:'pointer',fontSize:11,fontFamily:'monospace'}}>Aller pratiquer →</button>
+        </div>
+      )}
+    </div>
+
     {/* Instrument selector */}
     <div style={{marginBottom:'1.5rem'}}>
       <div style={{fontSize:10,letterSpacing:'.2em',opacity:.4,fontFamily:'monospace',marginBottom:'.65rem'}}>INSTRUMENT</div>
@@ -5325,7 +6732,7 @@ function CompetencesPage({skills,instrument,setInstrument,stats}){
         const isA=instrument===inst.id;
         return(<button key={inst.id} onClick={()=>inst.available&&setInstrument(inst.id)}
           style={{background:isA?'linear-gradient(135deg,#8B5CF6,#6D28D9)':'rgba(255,255,255,0.05)',
-            border:`1.5px solid ${isA?'transparent':isA?'rgba(139,92,246,0.4)':'rgba(255,255,255,0.1)'}`,
+            border:`1.5px solid ${isA?'transparent':'rgba(255,255,255,0.1)'}`,
             color:!inst.available?'rgba(255,255,255,0.2)':'#fff',
             padding:'.5rem 1rem',borderRadius:12,cursor:inst.available?'pointer':'not-allowed',
             fontFamily:'monospace',fontSize:11,transition:'all 0.2s',display:'flex',alignItems:'center',gap:6,
@@ -5341,7 +6748,7 @@ function CompetencesPage({skills,instrument,setInstrument,stats}){
       <div style={{fontSize:10,letterSpacing:'.2em',opacity:.35,fontFamily:'monospace',marginBottom:'.25rem'}}>COMPÉTENCES</div>
       <RadarChart skills={skills}/>
       <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap',marginTop:'.35rem'}}>
-        {skills.map(s=>(<div key={s.id} style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:7,height:7,borderRadius:'50%',background:s.color,boxShadow:`0 0 6px ${s.color}`}}/><span style={{fontSize:9,fontFamily:'monospace',opacity:.5}}>{s.label}</span></div>))}
+        {skills.map(s=>(<div key={s.id} style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:7,height:7,borderRadius:'50%',background:s.color,boxShadow:`0 0 6px ${s.color}80`}}/><span style={{fontSize:9,fontFamily:'monospace',opacity:.5}}>{s.label}</span></div>))}
       </div>
     </div>
 
@@ -5353,7 +6760,7 @@ function CompetencesPage({skills,instrument,setInstrument,stats}){
           <span style={{fontSize:11,fontFamily:'monospace',color:s.color,fontWeight:'bold'}}>{s.value}%</span>
         </div>
         <div style={{height:6,background:'rgba(255,255,255,0.07)',borderRadius:6,overflow:'hidden'}}>
-          <div style={{height:'100%',width:`${s.value}%`,background:s.color,borderRadius:6,boxShadow:`0 0 10px ${s.color}80`,transition:'width 0.8s cubic-bezier(0.34,1.56,0.64,1)'}}/>
+          <div style={{height:'100%',width:`${s.value}%`,background:s.color,borderRadius:6,boxShadow:`0 0 10px ${s.color}`,transition:'width 0.8s cubic-bezier(0.34,1.56,0.64,1)'}}/>
         </div>
       </div>))}
     </div>
@@ -5382,6 +6789,134 @@ function CompetencesPage({skills,instrument,setInstrument,stats}){
       <p style={{fontSize:12,opacity:.5,lineHeight:1.6,fontFamily:'Georgia,serif',margin:0}}>Historique des sessions, accords maîtrisés, intervalles reconnus, progression hebdomadaire...</p>
     </div>
   </div>);
+}
+
+// ── Métronome global ──────────────────────────────────────────────────────────
+function MetronomeWidget() {
+  const [bpm,      setBpm]      = useState(80);
+  const [running,  setRunning]  = useState(false);
+  const [beat,     setBeat]     = useState(0); // 0-3 for 4/4
+  const [timeSign, setTimeSign] = useState(4); // beats per measure
+  const [accent,   setAccent]   = useState(true); // accent first beat
+  const intervalRef = useRef(null);
+
+  function start() {
+    setRunning(true); setBeat(0);
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    let b = 0;
+    intervalRef.current = setInterval(() => {
+      b = (b+1) % timeSign;
+      setBeat(b);
+      // Click sound via Web Audio
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = (b===0 && accent) ? 1200 : 900;
+        osc.type = 'square';
+        gain.gain.setValueAtTime(b===0&&accent?0.3:0.15, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.05);
+        osc.start(); osc.stop(ctx.currentTime+0.06);
+      } catch(e){}
+    }, Math.round(60000/bpm));
+  }
+
+  function stop() {
+    clearInterval(intervalRef.current);
+    setRunning(false); setBeat(0);
+  }
+
+  useEffect(()=>()=>clearInterval(intervalRef.current),[]);
+  useEffect(()=>{if(running){stop();start();}}, [bpm,timeSign]); // eslint-disable-line
+
+  return (
+    <div style={{padding:'1.25rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:16}}>
+      <div style={{fontSize:10,color:'#82E0AA',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'1rem'}}>🎵 MÉTRONOME</div>
+
+      {/* Beat visualizer */}
+      <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:'1.25rem'}}>
+        {[...Array(timeSign)].map((_,i)=>(
+          <div key={i} style={{width:36,height:36,borderRadius:8,background:running&&beat===i?(i===0&&accent?'#F7DC6F':'#82E0AA'):'rgba(255,255,255,0.08)',border:`1.5px solid ${running&&beat===i?(i===0&&accent?'#F7DC6F':'#82E0AA'):'rgba(255,255,255,0.15)'}`,transition:'all 0.05s',transform:running&&beat===i?'scale(1.1)':'scale(1)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontFamily:'monospace',color:'rgba(255,255,255,0.4)'}}>{i+1}</div>
+        ))}
+      </div>
+
+      {/* BPM */}
+      <div style={{marginBottom:'1rem'}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+          <span style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.1em'}}>TEMPO</span>
+          <span style={{fontSize:18,fontWeight:'bold',fontFamily:'monospace',color:'#82E0AA'}}>{bpm} <span style={{fontSize:11,opacity:.5}}>BPM</span></span>
+        </div>
+        <input type="range" min={30} max={200} value={bpm} onChange={e=>setBpm(+e.target.value)} style={{width:'100%',accentColor:'#82E0AA'}}/>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:9,opacity:.3,fontFamily:'monospace',marginTop:3}}>
+          {[['30','Largo'],['60','Adagio'],['80','Andante'],['120','Allegro'],['160','Presto'],['200','']].map(([v,l])=>
+            <span key={v}>{l||v}</span>
+          )}
+        </div>
+      </div>
+
+      {/* Time signature + accent */}
+      <div style={{display:'flex',gap:8,marginBottom:'1rem'}}>
+        <div style={{flex:1}}>
+          <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',marginBottom:5}}>MESURE</div>
+          <div style={{display:'flex',gap:5}}>
+            {[2,3,4,6].map(n=>(
+              <button key={n} onClick={()=>setTimeSign(n)} style={{flex:1,padding:'.45rem',background:timeSign===n?'rgba(130,224,170,0.2)':'rgba(255,255,255,0.04)',border:`1px solid ${timeSign===n?'#82E0AA':'rgba(255,255,255,0.12)'}`,borderRadius:7,cursor:'pointer',color:timeSign===n?'#82E0AA':'rgba(255,255,255,0.5)',fontSize:11,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>{n}/4</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',marginBottom:5}}>ACCENT</div>
+          <button onClick={()=>setAccent(v=>!v)} style={{padding:'.45rem .8rem',background:accent?'rgba(247,220,111,0.2)':'rgba(255,255,255,0.04)',border:`1px solid ${accent?'#F7DC6F':'rgba(255,255,255,0.12)'}`,borderRadius:7,cursor:'pointer',color:accent?'#F7DC6F':'rgba(255,255,255,0.4)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s'}}>
+            {accent?'ON':'OFF'}
+          </button>
+        </div>
+      </div>
+
+      <button onClick={running?stop:start}
+        style={{width:'100%',padding:'.85rem',background:running?'rgba(241,148,138,0.15)':'rgba(130,224,170,0.15)',border:`1.5px solid ${running?'#F1948A':'#82E0AA'}`,color:running?'#F1948A':'#82E0AA',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',transition:'all 0.3s'}}>
+        {running?'■ ARRÊTER':'▶ LANCER'}
+      </button>
+    </div>
+  );
+}
+
+// ── Page Partage ──────────────────────────────────────────────────────────────
+function PartagePageActuelle({ stats }) {
+  const streak = computeStreak(stats);
+
+  return (
+    <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Partage & Outils</h2>
+        <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>MÉTRONOME · PROGRESSION · PARTAGE</p>
+      </div>
+
+      {/* Métronome */}
+      <MetronomeWidget/>
+
+      {/* Résumé progression */}
+      <div style={{marginTop:'1.25rem',padding:'1.25rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:16}}>
+        <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'1rem'}}>TA PROGRESSION</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:'1rem'}}>
+          {[
+            {label:'Sessions totales',  value:stats.sessionsCount||0,   color:'#85C1E9'},
+            {label:'Exercices faits',   value:stats.totalExercises||0,  color:'#82E0AA'},
+            {label:'Temps de pratique', value:formatTime(stats.totalSeconds), color:'#8B5CF6'},
+            {label:'Série actuelle',    value:streak>0?`${streak} 🔥`:'—', color:'#F7DC6F'},
+          ].map((s,i)=>(
+            <div key={i} style={{padding:'.85rem',background:`${s.color}10`,border:`1px solid ${s.color}25`,borderRadius:12,textAlign:'center'}}>
+              <div style={{fontSize:20,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif',marginBottom:4}}>{s.value}</div>
+              <div style={{fontSize:9,opacity:.5,fontFamily:'monospace',letterSpacing:'.04em'}}>{s.label.toUpperCase()}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{padding:'.85rem',background:'rgba(139,92,246,0.07)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:10}}>
+          <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',marginBottom:4}}>BIENTÔT</div>
+          <p style={{fontSize:12,opacity:.5,margin:0,fontFamily:'Georgia,serif'}}>Capture d'écran de progression, export PDF du journal, partage sur réseaux sociaux.</p>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PlaceholderPage({title,icon,description}){
@@ -5422,7 +6957,22 @@ export default function ChordApp(){
     return () => clearTimeout(mascotteTimerRef.current);
   }, [page, pageKey]);
 
-  // Register callbacks
+  // Register mascotte trigger
+  _mascotteTrigger = (type) => {
+    setMascoтteType(type);
+    setShowMascotte(true);
+  };
+
+  // Streak milestone celebration
+  useEffect(() => {
+    const s = computeStreak(stats);
+    if (s === 3 || s === 7 || s === 14 || s === 30) {
+      setTimeout(() => {
+        setMascoтteType('streak');
+        setShowMascotte(true);
+      }, 1500);
+    }
+  }, [stats.streak]); // eslint-disable-line
   _updater=(fn)=>{
     setStats(prev=>{
       const today=todayStr();
@@ -5452,6 +7002,8 @@ export default function ChordApp(){
   const NAV=[{id:'competences',label:'Compétences',icon:'◈'},{id:'apprentissage',label:'Apprentissage',icon:'✦'},{id:'journal',label:'Journal',icon:'📅'},{id:'partage',label:'Partage',icon:'↗'}];
   const NC={competences:'#C39BD3',apprentissage:'#85C1E9',journal:'#82E0AA',partage:'#F7DC6F'};
   const keys=stats.keys||0;
+  const streak=computeStreak(stats);
+  const streakColor = streak>=7?'#F59E0B':streak>=3?'#82E0AA':'rgba(255,255,255,0.5)';
 
   return(<div style={{minHeight:'100vh',background:theme.bgGrad,fontFamily:"'Georgia',serif",color:theme.text,display:'flex',flexDirection:'column',position:'relative',overflow:'hidden'}}>
 
@@ -5462,12 +7014,13 @@ export default function ChordApp(){
       @keyframes slideInRight{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
       @keyframes pageIn{from{opacity:0;transform:translateY(12px) scale(0.99)}to{opacity:1;transform:translateY(0) scale(1)}}
       @keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(12px,-18px) scale(1.04)}}
+      @keyframes streakPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
       *{box-sizing:border-box} button{cursor:pointer}
       ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
       ${theme.css||''}
     `}</style>
 
-    {/* Background orbs — décoratifs */}
+    {/* Background orbs */}
     <div style={{position:'fixed',inset:0,pointerEvents:'none',overflow:'hidden',zIndex:0}}>
       <div style={{position:'absolute',top:'-15%',left:'-10%',width:420,height:420,borderRadius:'50%',background:`radial-gradient(circle, rgba(139,92,246,0.14) 0%, transparent 70%)`,animation:'orbFloat 12s ease-in-out infinite'}}/>
       <div style={{position:'absolute',bottom:'-10%',right:'-8%',width:380,height:380,borderRadius:'50%',background:`radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)`,animation:'orbFloat 16s ease-in-out infinite reverse'}}/>
@@ -5475,12 +7028,22 @@ export default function ChordApp(){
     </div>
 
     {/* Header */}
-    <header style={{position:'fixed',top:0,left:0,right:0,padding:'.8rem 1.25rem',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`1px solid ${theme.borderMuted}`,zIndex:10,background:theme.headerBg,backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)'}}>
-      {/* Logo gradient */}
-      <span style={{fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif',letterSpacing:'.12em',background:theme.logoGrad,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
-        CHORD·STUDIO
-      </span>
-      <div style={{display:'flex',gap:7,alignItems:'center'}}>
+    <header style={{position:'fixed',top:0,left:0,right:0,padding:'.65rem 1rem',display:'flex',justifyContent:'space-between',alignItems:'center',borderBottom:`1px solid ${theme.borderMuted}`,zIndex:10,background:theme.headerBg,backdropFilter:'blur(20px)',WebkitBackdropFilter:'blur(20px)'}}>
+      {/* Logo + streak */}
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <span style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',letterSpacing:'.1em',background:theme.logoGrad,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
+          CHORD·STUDIO
+        </span>
+        {/* Streak badge */}
+        {streak>0 && (
+          <div title={`${streak} jour${streak>1?'s':''} consécutif${streak>1?'s':''}`}
+            style={{display:'flex',alignItems:'center',gap:3,padding:'2px 7px',background:streak>=3?`${streakColor}`:'rgba(255,255,255,0.06)',border:`1px solid ${streakColor}`,borderRadius:8,animation:streak>=7?'streakPulse 2s ease-in-out infinite':undefined}}>
+            <span style={{fontSize:12}}>{streak>=7?'🔥':streak>=3?'⚡':'✦'}</span>
+            <span style={{fontSize:11,fontWeight:'bold',color:streakColor,fontFamily:'monospace'}}>{streak}</span>
+          </div>
+        )}
+      </div>
+      <div style={{display:'flex',gap:6,alignItems:'center'}}>
         {/* Theme cycle */}
         <button onClick={()=>{
           const idx=THEME_IDS.indexOf(themeId);
@@ -5488,30 +7051,28 @@ export default function ChordApp(){
           setThemeId(next);
           try{localStorage.setItem('cs_theme',next);}catch{}
         }} title={`Thème : ${theme.label}`}
-          style={{background:theme.surface,border:`1px solid ${theme.border}`,color:theme.text,padding:'.3rem .6rem',borderRadius:10,cursor:'pointer',fontSize:14,transition:'all 0.2s',lineHeight:1,boxShadow:`0 2px 8px rgba(0,0,0,0.2)`}}
+          style={{background:theme.surface,border:`1px solid ${theme.border}`,color:theme.text,padding:'.28rem .55rem',borderRadius:9,cursor:'pointer',fontSize:13,transition:'all 0.2s',lineHeight:1}}
           onMouseEnter={e=>{e.currentTarget.style.transform='scale(1.1)';}}
           onMouseLeave={e=>{e.currentTarget.style.transform='scale(1)';}}>
           {theme.icon}
         </button>
         {/* Défis */}
         <button onClick={()=>setShowDefis(v=>!v)} style={{
-          display:'flex',alignItems:'center',gap:5,
+          display:'flex',alignItems:'center',gap:4,
           background:showDefis?'rgba(245,158,11,0.2)':theme.surface,
           border:`1px solid ${showDefis?'rgba(245,158,11,0.5)':theme.border}`,
           color:showDefis?'#FBBF24':theme.textMuted,
-          padding:'.3rem .8rem',borderRadius:10,cursor:'pointer',fontSize:11,
-          fontFamily:'monospace',letterSpacing:'.06em',transition:'all 0.2s',
-          boxShadow:showDefis?'0 2px 12px rgba(245,158,11,0.25)':'none'}}>
+          padding:'.28rem .7rem',borderRadius:9,cursor:'pointer',fontSize:11,
+          fontFamily:'monospace',letterSpacing:'.06em',transition:'all 0.2s'}}>
           <span style={{fontSize:12}}>🗝️</span>
           <span style={{fontWeight:'bold'}}>{keys}</span>
-          <span style={{opacity:.65}}>DÉFIS</span>
         </button>
         {/* Conseil */}
         <button onClick={()=>setShowTip(v=>!v)} style={{
           background:showTip?'rgba(245,158,11,0.15)':theme.surface,
           border:`1px solid ${showTip?'rgba(245,158,11,0.4)':theme.border}`,
           color:showTip?'#FBBF24':theme.textMuted,
-          padding:'.3rem .75rem',borderRadius:10,cursor:'pointer',fontSize:12,
+          padding:'.28rem .65rem',borderRadius:9,cursor:'pointer',fontSize:12,
           transition:'all 0.2s'}}>💡</button>
       </div>
     </header>
@@ -5519,9 +7080,9 @@ export default function ChordApp(){
     {/* Pages avec transition */}
     <div style={{flex:1,paddingTop:58,paddingBottom:72,display:'flex',flexDirection:'column',overflow:'hidden',position:'relative',zIndex:1}}>
       <div key={page+pageKey} style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',animation:'pageIn 0.32s cubic-bezier(0.34,1.20,0.64,1)'}}>
-        {page==='competences'&&<CompetencesPage skills={skills} instrument={instrument} setInstrument={setInstrument} stats={stats}/>}
+        {page==='competences'&&<CompetencesPage skills={skills} instrument={instrument} setInstrument={setInstrument} stats={stats} onNavigate={(p)=>{setPage(p);setPageKey(k=>k+1);}}/>}
         {page==='apprentissage'&&<ApprentissagePage sub={apprentissageSub} setSub={setApprentiassageSub}/>}
-        {page==='partage'&&<PlaceholderPage title="Partage" icon="↗" description="PARTAGE TA PROGRESSION BIENTÔT"/>}
+        {page==='partage'&&<PartagePageActuelle stats={stats}/>}
         {page==='journal'&&<JournalPage/>}
       </div>
     </div>
@@ -5573,6 +7134,7 @@ export default function ChordApp(){
     {showMascotte&&(
       <MascoттePopup
         type={mascoтteType}
+        streak={streak}
         onClose={()=>setShowMascotte(false)}
         onAction={()=>{
           setShowMascotte(false);
