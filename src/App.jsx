@@ -3354,7 +3354,7 @@ const MUSIC_SYMBOLS = [
   // NUANCES
   { id:'p-doux',     cat:'Nuances', name:'Piano (p)',       symbol:'𝒑', color:'#A78BFA',
     desc:'Jouer doucement. Échelle : ppp → pp → p → mp → mf → f → ff → fff.',
-    detail:'Les nuances viennent de l\'italien. "Piano" = doux. C\'est aussi pourquoi l\'instrument s'appelle piano-forte.' },
+    detail:'Les nuances viennent de l\'italien. "Piano" = doux. C\'est aussi pourquoi l\'instrument sappelle piano-forte.' },
   { id:'f-fort',     cat:'Nuances', name:'Forte (f)',       symbol:'𝒇', color:'#A78BFA',
     desc:'Jouer fort. mf = mezzoforte (moyennement fort). ff = fortissimo (très fort).',
     detail:'"Forte" = fort en italien. Les nuances sont relatives : f après pp semble encore plus percutant.' },
