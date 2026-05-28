@@ -245,14 +245,96 @@ function notifySectionVisit(){updateStats((s)=>({...s,todaySections:(s.todaySect
 let _sessionStart=Date.now(),_timeUpdater=null;
 function commitTime(){const secs=Math.floor((Date.now()-_sessionStart)/1000);_sessionStart=Date.now();if(_timeUpdater&&secs>5)_timeUpdater(secs);}
 
-// ── Audio ─────────────────────────────────────────────────────────────────────
-let _audioCtx=null;
-function getACtx(){if(!_audioCtx)_audioCtx=new(window.AudioContext||window.webkitAudioContext)();if(_audioCtx.state==='suspended')_audioCtx.resume();return _audioCtx;}
-function playNote(semi,delay=0,dur=1.8){try{const ctx=getACtx(),freq=261.63*Math.pow(2,semi/12),t=ctx.currentTime+delay;[[1,.45],[2,.12],[3,.07],[4,.03]].forEach(([h,g])=>{const o=ctx.createOscillator(),gn=ctx.createGain();o.connect(gn);gn.connect(ctx.destination);o.frequency.value=freq*h;o.type='sine';gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(g,t+.008);gn.gain.exponentialRampToValueAtTime(.001,t+dur);o.start(t);o.stop(t+dur+.05);});}catch{}}
-const playSeq=(n1,n2)=>{playNote(n1);playNote(n2,1.1);};
-const playSimul=(n1,n2)=>{playNote(n1,0,2);playNote(n2,0,2);};
-const playChordArp=ns=>ns.forEach((s,i)=>playNote(s,i*.1,2.2));
-const playChordSimul=ns=>ns.forEach(s=>playNote(s,0,2.5));
+// ── Audio — Piano réaliste (Salamander Grand Piano via soundfont-player) ──────
+// Échantillons audio réels d'un piano à queue enregistré en studio.
+// Chargement automatique depuis CDN au premier appui de touche.
+
+let _audioCtx    = null;
+let _piano       = null;   // instance soundfont-player
+let _pianoReady  = false;
+let _pianoLoading= false;
+
+function getACtx() {
+  if (!_audioCtx) _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_audioCtx.state === 'suspended') _audioCtx.resume();
+  return _audioCtx;
+}
+
+// Charge le soundfont la première fois qu'une note est demandée
+function loadPiano() {
+  if (_pianoReady || _pianoLoading) return;
+  if (document.getElementById('sf-script')) return;
+  _pianoLoading = true;
+
+  const script  = document.createElement('script');
+  script.id     = 'sf-script';
+  // soundfont-player v0.5 — minifié, ~15 ko
+  script.src    = 'https://cdn.jsdelivr.net/npm/soundfont-player@0.5.0/dist/soundfont-player.min.js';
+
+  script.onload = () => {
+    const ctx = getACtx();
+    // MusyngKite = samples haute qualité (piano à queue, mp3, ~200 ko de cache)
+    window.Soundfont.instrument(ctx, 'acoustic_grand_piano', {
+      soundfont: 'MusyngKite',
+      format  : 'mp3',
+      gain    : 3.5,
+    }).then(player => {
+      _piano      = player;
+      _pianoReady = true;
+      _pianoLoading = false;
+    }).catch(() => { _pianoLoading = false; });
+  };
+
+  script.onerror = () => { _pianoLoading = false; };
+  document.head.appendChild(script);
+}
+
+// Convertit le semi de l'app (0 = C4) en numéro MIDI, puis ramène
+// dans la plage 48-84 (C3-C6) pour un son de piano naturel.
+function semiToMidi(semi) {
+  let midi = 60 + semi;                 // 60 = C4 = MIDI standard
+  while (midi > 84) midi -= 12;        // redescend si trop aigu
+  while (midi < 36) midi += 12;        // remonte si trop grave
+  return midi;
+}
+
+// Fallback ultra-léger : triangle doux pendant le chargement
+function _fallbackNote(midi, delay, dur) {
+  try {
+    const ctx  = getACtx();
+    const freq = 440 * Math.pow(2, (midi - 69) / 12);
+    const t    = ctx.currentTime + delay;
+    const osc  = ctx.createOscillator();
+    const gn   = ctx.createGain();
+    osc.connect(gn); gn.connect(ctx.destination);
+    osc.type = 'triangle';
+    osc.frequency.value = freq;
+    gn.gain.setValueAtTime(0, t);
+    gn.gain.linearRampToValueAtTime(0.12, t + 0.008);
+    gn.gain.exponentialRampToValueAtTime(0.001, t + Math.min(dur, 1.2));
+    osc.start(t); osc.stop(t + Math.min(dur, 1.2) + 0.05);
+  } catch(e) {}
+}
+
+function playNote(semi, delay = 0, dur = 2.0) {
+  loadPiano();                           // démarre le chargement si besoin
+  const midi = semiToMidi(semi);
+
+  if (_pianoReady && _piano) {
+    const ctx = getACtx();
+    _piano.play(String(midi), ctx.currentTime + delay, { duration: dur, gain: 1.0 });
+  } else {
+    // Pendant le chargement (environ 1-2 secondes au premier lancement)
+    _fallbackNote(midi, delay, dur);
+  }
+}
+
+const playSeq       = (n1,n2) => { playNote(n1); playNote(n2, 1.1); };
+const playSimul     = (n1,n2) => { playNote(n1,0,2); playNote(n2,0,2); };
+const playChordArp  = ns      => ns.forEach((s,i) => playNote(s, i*0.1, 2.0));
+const playChordSimul= ns      => ns.forEach(s     => playNote(s, 0,    2.2));
+
+
 
 // ── Intervals ─────────────────────────────────────────────────────────────────
 const INTERVALS_DATA=[
@@ -1588,27 +1670,423 @@ function ImprovisationGuidee() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── MASCOTTE — Noire musicale ─────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const MASCOTTE_DIALOGUES = {
+  idle: [
+    "Psst ! Tu n'as pas pratiqué depuis un moment… 🎵",
+    "Un exercice rapide ? Ça prend seulement 2 minutes !",
+    "Ton oreille s'améliore si tu travailles chaque jour 🎹",
+    "Je m'ennuie… et toi ? On fait un exercice ?",
+    "La régularité, c'est la clé du musicien 🗝️",
+  ],
+  success: [
+    "Bravo ! Tu progresses à vue d'œil ! 🎉",
+    "Excellent travail ! Ton oreille se développe !",
+    "Super ! Continue comme ça, tu vas tout déchirer ! 🔥",
+    "Wahou ! Je suis fier de toi ! 🌟",
+    "Parfait ! Un vrai musicien en herbe ! 🎼",
+  ],
+  encourage: [
+    "Ne lâche pas ! Chaque erreur est un apprentissage.",
+    "C'est difficile, mais tu y es presque !",
+    "Allez, encore un effort ! Tu peux le faire ! 💪",
+  ],
+};
+
+function Mascotte({ expression='normal', size=80, animate=false }) {
+  // SVG d'une noire musicale stylisée avec des yeux expressifs
+  const eyeY     = expression==='happy' ? 32 : expression==='sad' ? 36 : 33;
+  const mouthPath= expression==='happy'
+    ? 'M 28 50 Q 40 58 52 50'   // sourire
+    : expression==='sad'
+    ? 'M 28 54 Q 40 46 52 54'   // tristesse
+    : 'M 30 51 Q 40 55 50 51';  // neutre
+
+  return (
+    <svg viewBox="0 0 80 110" width={size} height={size*1.375} style={{overflow:'visible',filter:'drop-shadow(0 4px 12px rgba(139,92,246,0.4))',animation:animate?'orbFloat 2s ease-in-out infinite':undefined}}>
+      {/* Corps de la noire (tête ovale) */}
+      <ellipse cx="40" cy="52" rx="26" ry="22" fill="#1a0a2e" stroke="#A78BFA" strokeWidth="2.5"/>
+      {/* Reflet lumineux */}
+      <ellipse cx="33" cy="43" rx="8" ry="5" fill="rgba(167,139,250,0.25)" transform="rotate(-20,33,43)"/>
+      {/* Queue de la noire */}
+      <rect x="64" y="18" width="3.5" height="42" rx="1.5" fill="#A78BFA"/>
+      {/* Drapeau de la noire */}
+      <path d="M 67.5 18 Q 78 24 72 34 Q 78 30 67.5 38" fill="#A78BFA"/>
+      {/* Yeux */}
+      <ellipse cx="31" cy={eyeY} rx="5" ry="5.5" fill="white"/>
+      <ellipse cx="49" cy={eyeY} rx="5" ry="5.5" fill="white"/>
+      <circle cx="32.5" cy={eyeY+1} r="3" fill="#1a0a2e"/>
+      <circle cx="50.5" cy={eyeY+1} r="3" fill="#1a0a2e"/>
+      {/* Reflets des yeux */}
+      <circle cx="33.5" cy={eyeY-1} r="1" fill="white" opacity="0.9"/>
+      <circle cx="51.5" cy={eyeY-1} r="1" fill="white" opacity="0.9"/>
+      {/* Joues (si happy) */}
+      {expression==='happy' && <>
+        <ellipse cx="20" cy="48" rx="5" ry="3" fill="#F43F5E" opacity="0.5"/>
+        <ellipse cx="60" cy="48" rx="5" ry="3" fill="#F43F5E" opacity="0.5"/>
+      </>}
+      {/* Bouche */}
+      <path d={mouthPath} stroke="#A78BFA" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+      {/* Petites notes décoratives (si happy) */}
+      {expression==='happy' && <>
+        <text x="4" y="30" fontSize="10" fill="#F7DC6F" opacity="0.8">♪</text>
+        <text x="64" y="78" fontSize="8" fill="#82E0AA" opacity="0.8">♫</text>
+      </>}
+    </svg>
+  );
+}
+
+function MascoттePopup({ type='idle', onClose, onAction, actionLabel='Pratiquer !' }) {
+  const msgs = MASCOTTE_DIALOGUES[type] || MASCOTTE_DIALOGUES.idle;
+  const msg  = msgs[Math.floor(Math.random()*msgs.length)];
+  const expr = type==='success'?'happy':type==='encourage'?'sad':'normal';
+
+  return (
+    <div style={{position:'fixed',bottom:'5.5rem',left:'50%',transform:'translateX(-50%)',width:'min(320px,88vw)',background:'linear-gradient(135deg,#1a0a2e,#0D0B1E)',border:'2px solid rgba(167,139,250,0.5)',borderRadius:20,padding:'1.25rem',zIndex:300,boxShadow:'0 16px 48px rgba(139,92,246,0.4)',animation:'slideUp 0.4s cubic-bezier(0.34,1.56,0.64,1)'}}>
+      <div style={{display:'flex',alignItems:'center',gap:'1rem',marginBottom:'.85rem'}}>
+        <Mascotte expression={expr} size={56} animate={type==='idle'}/>
+        <div style={{flex:1}}>
+          <div style={{fontSize:12,fontWeight:'bold',color:'#A78BFA',fontFamily:'Georgia,serif',marginBottom:4}}>Noire</div>
+          <p style={{fontSize:13,color:'rgba(255,255,255,0.8)',lineHeight:1.55,margin:0,fontFamily:'Georgia,serif'}}>{msg}</p>
+        </div>
+        <button onClick={onClose} style={{background:'none',border:'none',color:'rgba(255,255,255,0.35)',cursor:'pointer',fontSize:18,lineHeight:1,flexShrink:0,padding:'0 2px'}}>×</button>
+      </div>
+      <div style={{display:'flex',gap:8}}>
+        {onAction && (
+          <button onClick={onAction}
+            style={{flex:1,padding:'.55rem',background:'linear-gradient(135deg,#8B5CF6,#A78BFA)',border:'none',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',color:'#fff',fontWeight:'bold',letterSpacing:'.06em',boxShadow:'0 4px 12px rgba(139,92,246,0.4)'}}>
+            {actionLabel}
+          </button>
+        )}
+        <button onClick={onClose}
+          style={{padding:'.55rem .9rem',background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.15)',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',color:'rgba(255,255,255,0.5)'}}>
+          Pas maintenant
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Hook pour la mascotte idle (ré-utilisable)
+function useMascoтteIdle(page, setPage) {
+  const [showMascotte, setShowMascotte] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => {
+    // Apparaît après 45s d'inactivité sur la page compétences
+    if (page !== 'competences') { clearTimeout(timerRef.current); setShowMascotte(false); return; }
+    timerRef.current = setTimeout(() => setShowMascotte(true), 45000);
+    return () => clearTimeout(timerRef.current);
+  }, [page]);
+
+  return { showMascotte, setShowMascotte };
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── RECONNAISSANCE DE GAMME ───────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function GammeRecognition({ onBack }) {
+  const [mode,       setMode]       = useState('config'); // config | play | result
+  const [level,      setLevel]      = useState('mode');   // 'mode' = maj/min only, 'tonality' = + tonalité
+  const [exCount,    setExCount]    = useState(10);
+  const [exercises,  setExercises]  = useState([]);
+  const [idx,        setIdx]        = useState(0);
+  const [score,      setScore]      = useState(0);
+  const [answered,   setAnswered]   = useState(false);
+  const [userAnswer, setUserAnswer] = useState(null);
+  const [showSuccess,setShowSuccess]= useState(false);
+
+  const timeoutsRef = useRef([]);
+  function clearAllTimeouts() { timeoutsRef.current.forEach(clearTimeout); timeoutsRef.current = []; }
+  useEffect(() => () => clearAllTimeouts(), []);
+
+  // Génère un exercice : une gamme aléatoire + mélodie courte
+  function generateExercise() {
+    const keys  = ROOT_NOTES;
+    const modes = ['major', 'minor'];
+    const keyR  = keys[Math.floor(Math.random()*keys.length)];
+    const modeR = modes[Math.floor(Math.random()*modes.length)];
+    const ri    = CHROMATIC.indexOf(keyR);
+    const scale = modeR==='major'
+      ? MAJOR_SCALE_SEMIS.map(s=>(ri+s)%12)
+      : [0,2,3,5,7,8,10].map(s=>(ri+s)%12); // mineur naturel
+
+    // Mélodie courte (5-7 notes) dans la gamme
+    const melody = [];
+    let prev = -1;
+    for (let i=0; i<6; i++) {
+      const candidates = scale.filter(n=>n!==prev);
+      const note = candidates[Math.floor(Math.random()*candidates.length)];
+      melody.push(note); prev=note;
+    }
+
+    // Accompagnement : accords I et V de la gamme
+    const chordI_root = ri;
+    const chordV_root = (ri+7)%12;
+    const chordType   = modeR==='major'?'Majeures':'Mineures';
+
+    return { key:keyR, mode:modeR, melody, chordI_root, chordV_root, chordType };
+  }
+
+  function buildExercises(n) {
+    return Array.from({length:n}, generateExercise);
+  }
+
+  function playExercise(ex) {
+    clearAllTimeouts();
+    // Accompagnement I
+    const id1 = setTimeout(()=>{
+      const notes1 = CHORD_TYPES[ex.chordType].formula.map(f=>ex.chordI_root+f+3*12);
+      playChordArp(notes1);
+    }, 0);
+    // Mélodie
+    ex.melody.forEach((semi, i) => {
+      const id = setTimeout(()=>playNote(semi+4*12, 0, 0.7), 500+i*380);
+      timeoutsRef.current.push(id);
+    });
+    // Accord V final pour créer tension
+    const id2 = setTimeout(()=>{
+      const notes2 = CHORD_TYPES[ex.chordType].formula.map(f=>ex.chordV_root+f+3*12);
+      playChordArp(notes2);
+    }, 500+ex.melody.length*380+200);
+    // Accord I final (résolution)
+    const id3 = setTimeout(()=>{
+      const notes3 = CHORD_TYPES[ex.chordType].formula.map(f=>ex.chordI_root+f+3*12);
+      playChordSimul(notes3);
+    }, 500+ex.melody.length*380+1600);
+    timeoutsRef.current.push(id1, id2, id3);
+  }
+
+  function start() {
+    const exs = buildExercises(exCount);
+    setExercises(exs); setIdx(0); setScore(0); setAnswered(false); setUserAnswer(null);
+    setMode('play');
+    setTimeout(()=>playExercise(exs[0]), 500);
+  }
+
+  function handleAnswer(answer) {
+    if (answered) return;
+    const ex = exercises[idx];
+    let correct = false;
+    if (level==='mode') {
+      correct = answer === ex.mode;
+    } else {
+      // answer = {key, mode}
+      correct = answer.key===ex.key && answer.mode===ex.mode;
+    }
+    setUserAnswer(answer); setAnswered(true);
+    if (correct) { setScore(s=>s+1); }
+  }
+
+  function next() {
+    if (idx>=exercises.length-1) {
+      setMode('result');
+      if (score >= exercises.length*0.8) setShowSuccess(true);
+      return;
+    }
+    const nextIdx = idx+1;
+    setIdx(nextIdx); setAnswered(false); setUserAnswer(null);
+    setTimeout(()=>playExercise(exercises[nextIdx]), 400);
+  }
+
+  const ex = exercises[idx];
+
+  // Config
+  if (mode==='config') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:'1.5rem'}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',margin:0}}>Reconnaissance de gamme</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>MAJEUR OU MINEUR ? ET LA TONALITÉ ?</p>
+        </div>
+      </div>
+      <div style={{padding:'.9rem',background:'rgba(247,220,111,0.07)',border:'1px solid rgba(247,220,111,0.2)',borderRadius:12,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.65,fontFamily:'Georgia,serif'}}>L'app joue une mélodie avec accompagnement. Tu dois identifier si c'est majeur ou mineur — et en mode avancé, aussi la tonalité.</p>
+      </div>
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>NIVEAU</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {[
+            {id:'mode',     label:'Niveau 1 — Majeur ou Mineur', desc:'Identifier la couleur harmonique',  color:'#82E0AA'},
+            {id:'tonality', label:'Niveau 2 — + Tonalité',       desc:'Identifier aussi la note tonique',  color:'#F7DC6F'},
+          ].map(l=>(
+            <button key={l.id} onClick={()=>setLevel(l.id)}
+              style={{background:level===l.id?`${l.color}15`:'rgba(255,255,255,0.03)',border:`1.5px solid ${level===l.id?l.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:'bold',color:level===l.id?l.color:'#fff',fontFamily:'Georgia,serif',marginBottom:2}}>{l.label}</div>
+                <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{l.desc}</div>
+              </div>
+              {level===l.id && <span style={{color:l.color}}>✓</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{marginBottom:'1.5rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>EXERCICES</div>
+        <div style={{display:'flex',gap:8}}>
+          {[5,10,15].map(n=>(
+            <button key={n} onClick={()=>setExCount(n)} style={{flex:1,padding:'.65rem',background:exCount===n?'rgba(247,220,111,0.15)':'rgba(255,255,255,0.03)',border:`1.5px solid ${exCount===n?'#F7DC6F':'rgba(255,255,255,0.1)'}`,color:exCount===n?'#F7DC6F':'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontFamily:'monospace',fontSize:14,fontWeight:'bold',transition:'all 0.2s'}}>{n}</button>
+          ))}
+        </div>
+      </div>
+      <button onClick={start} style={{width:'100%',padding:'1rem',background:'rgba(247,220,111,0.15)',border:'1.5px solid #F7DC6F',color:'#F7DC6F',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>COMMENCER →</button>
+    </div>
+  );
+
+  // Result
+  if (mode==='result') {
+    const pct=Math.round((score/exercises.length)*100);
+    const mc=pct>=80?'#82E0AA':pct>=50?'#F7DC6F':'#F1948A';
+    return (
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        {showSuccess && (
+          <div style={{display:'flex',justifyContent:'center',marginBottom:'.5rem',animation:'fadeIn 0.5s ease'}}>
+            <Mascotte expression="happy" size={80} animate/>
+          </div>
+        )}
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
+          <div style={{fontSize:68,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score}<span style={{fontSize:28,opacity:.5}}>/{exercises.length}</span></div>
+          <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
+          <div style={{fontSize:13,opacity:.55,fontFamily:'Georgia,serif',marginTop:8}}>{pct>=80?'Ton oreille harmonique est excellente ! 🎉':pct>=50?'Bonne progression, continue !':'Écoute beaucoup de musique — ça développe l\'oreille !'}</div>
+        </div>
+        <button onClick={start} style={{padding:'.9rem',background:'rgba(247,220,111,0.15)',border:'1.5px solid #F7DC6F',color:'#F7DC6F',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>🔄 REJOUER</button>
+        <button onClick={()=>setMode('config')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>CHANGER DE NIVEAU</button>
+      </div>
+    );
+  }
+
+  // Play
+  const isCorrect = answered && (level==='mode' ? userAnswer===ex?.mode : userAnswer?.key===ex?.key && userAnswer?.mode===ex?.mode);
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.75rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{idx+1}/{exercises.length}</span>
+        <div style={{flex:1,margin:'0 1rem',height:3,background:'rgba(255,255,255,0.08)',borderRadius:2}}>
+          <div style={{height:'100%',width:`${((idx+1)/exercises.length)*100}%`,background:'#F7DC6F',borderRadius:2,transition:'width 0.3s ease'}}/>
+        </div>
+        <span style={{fontSize:10,fontFamily:'monospace',color:'#82E0AA'}}>{score} ✓</span>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Question */}
+        <div style={{textAlign:'center',padding:'1.25rem',background:'rgba(247,220,111,0.05)',border:'1px solid rgba(247,220,111,0.18)',borderRadius:12}}>
+          <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'1rem'}}>
+            {level==='mode'?'CETTE MÉLODIE EST-ELLE MAJEURE OU MINEURE ?':'IDENTIFIE LA TONALITÉ ET LE MODE'}
+          </div>
+          <button onClick={()=>ex&&playExercise(ex)}
+            style={{background:'rgba(247,220,111,0.12)',border:'1px solid rgba(247,220,111,0.4)',color:'#F7DC6F',padding:'.6rem 1.4rem',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',letterSpacing:'.08em',fontWeight:'bold'}}>
+            🔊 RÉÉCOUTER
+          </button>
+        </div>
+
+        {/* Answered feedback */}
+        {answered && (
+          <div style={{textAlign:'center',padding:'.85rem',background:isCorrect?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.1)',border:`1px solid ${isCorrect?'rgba(130,224,170,0.35)':'rgba(241,148,138,0.35)'}`,borderRadius:10,animation:'fadeIn 0.25s ease'}}>
+            <div style={{fontSize:16,fontWeight:'bold',color:isCorrect?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:4}}>
+              {isCorrect?'✓ Correct !':'✗ Incorrect'}
+            </div>
+            <div style={{fontSize:12,opacity:.65,fontFamily:'monospace'}}>
+              Réponse : <strong style={{color:'#F7DC6F'}}>{ex?.key} {ex?.mode==='major'?'Majeur':'Mineur'}</strong>
+            </div>
+          </div>
+        )}
+
+        {/* Level 1 — Majeur/Mineur */}
+        {!answered && level==='mode' && (
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            {[
+              {val:'major', label:'☀ MAJEUR',  desc:'Lumineux, joyeux',   color:'#F7DC6F'},
+              {val:'minor', label:'🌙 MINEUR', desc:'Sombre, mélancolique', color:'#C39BD3'},
+            ].map(opt=>(
+              <button key={opt.val} onClick={()=>handleAnswer(opt.val)}
+                style={{padding:'1.25rem .5rem',background:`${opt.color}10`,border:`1.5px solid ${opt.color}40`,borderRadius:14,cursor:'pointer',textAlign:'center',transition:'all 0.2s'}}
+                onMouseEnter={e=>{e.currentTarget.style.background=`${opt.color}20`;e.currentTarget.style.borderColor=opt.color;e.currentTarget.style.transform='scale(1.03)';}}
+                onMouseLeave={e=>{e.currentTarget.style.background=`${opt.color}10`;e.currentTarget.style.borderColor=`${opt.color}40`;e.currentTarget.style.transform='scale(1)';}}>
+                <div style={{fontSize:20,fontWeight:'bold',color:opt.color,fontFamily:'Georgia,serif',marginBottom:4}}>{opt.label}</div>
+                <div style={{fontSize:10,opacity:.55,fontFamily:'monospace'}}>{opt.desc}</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Level 2 — Tonalité + mode */}
+        {!answered && level==='tonality' && (
+          <div>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>CHOISIR LA TONIQUE</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:5,marginBottom:'1rem'}}>
+              {ROOT_NOTES.map(k=>{
+                const nc=NOTE_COLORS[k]||'#F7DC6F';
+                return <button key={k} onClick={()=>handleAnswer({key:k,mode:'major'})}
+                  style={{background:`${nc}10`,border:`1px solid ${nc}40`,color:nc,padding:'.5rem .1rem',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
+                  onMouseEnter={e=>{e.currentTarget.style.background=`${nc}22`;e.currentTarget.style.transform='scale(1.05)';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=`${nc}10`;e.currentTarget.style.transform='scale(1)';}}>{k}</button>;
+              })}
+            </div>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>PUIS LE MODE</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              {[{val:'major',label:'☀ Majeur',color:'#F7DC6F'},{val:'minor',label:'🌙 Mineur',color:'#C39BD3'}].map(m=>(
+                <button key={m.val} onClick={()=>handleAnswer({key:ex?.key||'C',mode:m.val})}
+                  style={{padding:'.75rem',background:`${m.color}10`,border:`1px solid ${m.color}40`,borderRadius:10,cursor:'pointer',color:m.color,fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {answered && (
+          <button onClick={next} style={{width:'100%',padding:'.9rem',background:isCorrect?'rgba(130,224,170,0.12)':'rgba(241,148,138,0.08)',border:`1.5px solid ${isCorrect?'#82E0AA':'#F1948A'}`,color:isCorrect?'#82E0AA':'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
+            {idx>=exercises.length-1?'VOIR LES RÉSULTATS →':'EXERCICE SUIVANT →'}
+          </button>
+        )}
+
+        <div style={{padding:'.65rem .9rem',background:'rgba(139,92,246,0.07)',border:'1px solid rgba(139,92,246,0.18)',borderRadius:10}}>
+          <p style={{fontSize:11,opacity:.55,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>
+            💡 Astuce : une gamme majeure sonne "heureuse" et lumineuse. Une gamme mineure sonne "nostalgique" ou "sombre". Fais confiance à tes émotions.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function OreilPage(){
   const [sub,setSub]=useState(null);
   if(sub==='intervalles') return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><IntervallesSection onBack={()=>setSub(null)}/></div>);
   if(sub==='accords')     return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><AccordOreilleSection onBack={()=>setSub(null)}/></div>);
   if(sub==='melodie')     return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><MelodieSection onBack={()=>setSub(null)}/></div>);
   if(sub==='absolue')     return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><OreilleAbsolue onBack={()=>setSub(null)}/></div>);
+  if(sub==='gamme')       return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><GammeRecognition onBack={()=>setSub(null)}/></div>);
 
   const MODS=[
-    {id:'intervalles', icon:'🎵', title:'Intervalles',    subtitle:'IDENTIFIER LES DISTANCES',    color:'#85C1E9', ok:true},
-    {id:'accords',     icon:'🎹', title:'Accords',         subtitle:"IDENTIFIER À L'OREILLE",      color:'#C39BD3', ok:true},
-    {id:'melodie',     icon:'🎼', title:'Mélodie',         subtitle:'DICTÉE MÉLODIQUE',             color:'#82E0AA', ok:true},
-    {id:'absolue',     icon:'👁', title:'Oreille Absolue', subtitle:'ÉCOUTER ET REPRODUIRE',        color:'#A78BFA', ok:true},
+    {id:'intervalles', icon:'🎵', title:'Intervalles',          subtitle:'IDENTIFIER LES DISTANCES',    color:'#85C1E9'},
+    {id:'accords',     icon:'🎹', title:'Accords',               subtitle:"IDENTIFIER À L'OREILLE",      color:'#C39BD3'},
+    {id:'melodie',     icon:'🎼', title:'Mélodie',               subtitle:'DICTÉE MÉLODIQUE',             color:'#82E0AA'},
+    {id:'absolue',     icon:'👁', title:'Oreille Absolue',       subtitle:'ÉCOUTER ET REPRODUIRE',        color:'#A78BFA'},
+    {id:'gamme',       icon:'🎸', title:'Reconnaissance Gamme',  subtitle:'MAJEUR · MINEUR · TONALITÉ',   color:'#F7DC6F'},
   ];
   return(<div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
-    <div style={{marginBottom:'1.5rem'}}><h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Oreille Musicale</h2><p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>DÉVELOPPE TON OREILLE PAR L'ÉCOUTE ACTIVE</p></div>
+    <div style={{marginBottom:'1.5rem'}}>
+      <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Oreille Musicale</h2>
+      <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>DÉVELOPPE TON OREILLE PAR L'ÉCOUTE ACTIVE</p>
+    </div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
-      {MODS.map(m=>(<button key={m.id} onClick={()=>setSub(m.id)} style={{background:`${m.color}08`,border:`1px solid ${m.color}40`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+      {MODS.map(m=>(<button key={m.id} onClick={()=>setSub(m.id)}
+        style={{background:`${m.color}08`,border:`1px solid ${m.color}40`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
         onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
         onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}40`;e.currentTarget.style.transform='translateY(0)';}}>
-        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}><span style={{fontSize:26}}>{m.icon}</span><span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span></div>
-        <div><div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.color,fontFamily:'Georgia,serif'}}>{m.title}</div><div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div></div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+          <span style={{fontSize:26}}>{m.icon}</span>
+          <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}50`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
+        </div>
+        <div>
+          <div style={{fontSize:14,fontWeight:'bold',marginBottom:3,color:m.color,fontFamily:'Georgia,serif'}}>{m.title}</div>
+          <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.04em'}}>{m.subtitle}</div>
+        </div>
       </button>))}
     </div>
   </div>);
@@ -1703,13 +2181,49 @@ const SOLFEGE_CHROM = [
 ];
 
 // ── Mélodies pour la lecture de partition ────────────────────────────────────
+// Notes disponibles sur la portée (nom → demi-ton depuis C4=0)
+const LECTURE_NOTE_SEMI = {
+  C4:0,D4:2,E4:4,F4:5,G4:7,A4:9,B4:11,
+  C5:12,D5:14,E5:16,F5:17,G5:19,
+};
+const LECTURE_NOTE_NAMES = Object.keys(LECTURE_NOTE_SEMI);
+const LECTURE_SOLFEGE = {
+  C4:'Do',D4:'Ré',E4:'Mi',F4:'Fa',G4:'Sol',A4:'La',B4:'Si',
+  C5:'Do',D5:'Ré',E5:'Mi',F5:'Fa',G5:'Sol',
+};
+
+// Génère une mélodie aléatoire avec contrainte d'intervalle optionnelle
+function generateLectureMelody(length=7, maxInterval=null) {
+  const keys = LECTURE_NOTE_NAMES;
+  const semis = LECTURE_NOTE_NAMES.map(k => LECTURE_NOTE_SEMI[k]);
+  const result = [];
+  let prevSemi = semis[2]; // Départ sur E4
+  for (let i=0; i<length; i++) {
+    let candidates;
+    if (maxInterval) {
+      candidates = keys.filter(k => {
+        const s = LECTURE_NOTE_SEMI[k];
+        return Math.abs(s - prevSemi) <= maxInterval && Math.abs(s - prevSemi) > 0;
+      });
+    } else {
+      candidates = keys.filter(k => LECTURE_NOTE_SEMI[k] !== prevSemi);
+    }
+    if (candidates.length === 0) candidates = keys;
+    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+    result.push(chosen);
+    prevSemi = LECTURE_NOTE_SEMI[chosen];
+  }
+  return result;
+}
+
 const LECTURE_MELODIES = [
-  { id:1, title:"Gamme ascendante",    desc:"Les 8 notes fondamentales en montant",     notes:['C4','D4','E4','F4','G4','A4','B4','C5'] },
-  { id:2, title:"Gamme descendante",   desc:"Les 8 notes fondamentales en descendant",  notes:['C5','B4','A4','G4','F4','E4','D4','C4'] },
-  { id:3, title:"Mélodie conjointe",   desc:"Notes qui se suivent progressivement",     notes:['E4','F4','G4','A4','G4','F4','E4','D4'] },
-  { id:4, title:"Arpège de Do majeur", desc:"Les notes de l'accord de Do",              notes:['C4','E4','G4','C5','G4','E4','C4'] },
-  { id:5, title:"Au clair de la lune", desc:"Mélodie traditionnelle (domaine public)",  notes:['C5','C5','C5','D5','E5','D5','C5'] },
-  { id:6, title:"Mélodie sautée",      desc:"Sauts d'intervalles plus larges",          notes:['C4','G4','E4','A4','F4','B4','G4','C5'] },
+  { id:1, title:"Gamme ascendante",    desc:"Les 8 notes fondamentales en montant",     fixed:true, notes:['C4','D4','E4','F4','G4','A4','B4','C5'] },
+  { id:2, title:"Gamme descendante",   desc:"Les 8 notes fondamentales en descendant",  fixed:true, notes:['C5','B4','A4','G4','F4','E4','D4','C4'] },
+  { id:3, title:"Mélodie conjointe",   desc:"Notes qui se suivent — générée aléatoirement", fixed:false, maxInterval:2, length:7 },
+  { id:4, title:"Arpège de Do majeur", desc:"Les notes de l'accord de Do",              fixed:true, notes:['C4','E4','G4','C5','G4','E4','C4'] },
+  { id:5, title:"Au clair de la lune", desc:"Mélodie traditionnelle (domaine public)",  fixed:true, notes:['C5','C5','C5','D5','E5','D5','C5'] },
+  { id:6, title:"Mélodie sautée",      desc:"Sauts d'intervalles — tu choisis la distance", fixed:false, isIntervalPicker:true, length:7 },
+  { id:7, title:"Mélodie libre",       desc:"Mélodie entièrement aléatoire",            fixed:false, maxInterval:null, length:8 },
 ];
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2769,266 +3283,540 @@ function BibliothequePage() {
 // ══════════════════════════════════════════════════════════════════════════════
 // ── SOLFÈGE PAGE ──────────────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
-function SolfegePage() {
-  const [mode, setMode] = useState('reference'); // reference | exercice
-  const [exNote, setExNote] = useState(null);
+// ══════════════════════════════════════════════════════════════════════════════
+// ── SYMBOLES MUSICAUX ────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const MUSIC_SYMBOLS = [
+  // CLÉS
+  { id:'cle-sol',    cat:'Clés',   name:'Clé de Sol',    symbol:'𝄞', color:'#8B5CF6',
+    desc:'Fixe la note Sol sur la 2e ligne. Clé la plus utilisée : piano (MD), violon, flûte.',
+    detail:'Chaque ligne et espace correspond à une note. La clé de Sol indique que la 2e ligne (en bas) est un Sol.' },
+  { id:'cle-fa',     cat:'Clés',   name:'Clé de Fa',      symbol:'𝄢', color:'#8B5CF6',
+    desc:'Fixe la note Fa sur la 4e ligne. Instruments graves : piano (MG), violoncelle, contrebasse.',
+    detail:'La clé de Fa place le Fa sur la 4e ligne. Les notes y sont plus graves qu\'avec la clé de Sol.' },
+  { id:'cle-ut',     cat:'Clés',   name:"Clé d'Ut (Do)", symbol:'𝄡', color:'#8B5CF6',
+    desc:"Fixe le Do central. Variable selon la ligne. Utilisée par l'alto, le ténor.",
+    detail:"Moins courante, on la retrouve surtout pour l'alto. Elle évite les lignes supplémentaires." },
+  
+  // SILENCES
+  { id:'sil-ronde',  cat:'Silences', name:'Silence de ronde',   symbol:'𝄻', color:'#06B6D4',
+    desc:'4 temps de silence. Rectangle plein suspendu sous la 4e ligne. Retiens : il pend.',
+    detail:'Moyen mnémotechnique : il est "lourd", donc il tombe et se suspend sous la ligne.' },
+  { id:'sil-blanche',cat:'Silences', name:'Silence de blanche',  symbol:'𝄼', color:'#06B6D4',
+    desc:'2 temps de silence. Rectangle plein posé sur la 3e ligne. Retiens : il repose.',
+    detail:'Moyen mnémotechnique : il est "léger", donc il flotte et se pose sur la ligne.' },
+  { id:'sil-noire',  cat:'Silences', name:'Silence de noire',    symbol:'𝄽', color:'#06B6D4',
+    desc:'1 temps de silence. Ressemble à un "z" stylisé.',
+    detail:'1 temps — même durée que la noire. Très fréquent dans tous les styles musicaux.' },
+  { id:'sil-croche', cat:'Silences', name:'Silence de croche',   symbol:'𝄾', color:'#06B6D4',
+    desc:'1/2 temps de silence. Ressemble à une virgule stylisée.',
+    detail:"La moitié d'un temps. 2 silences de croche = 1 silence de noire." },
+  
+  // VALEURS
+  { id:'ronde',      cat:'Valeurs', name:'Ronde',          symbol:'𝅝', color:'#10B981',
+    desc:'4 temps. Tête vide sans hampe. La note la plus longue en usage courant.',
+    detail:'En 4/4 : la ronde dure toute la mesure. 1 ronde = 2 blanches = 4 noires = 8 croches.' },
+  { id:'blanche',    cat:'Valeurs', name:'Blanche',         symbol:'𝅗𝅥', color:'#10B981',
+    desc:'2 temps. Tête vide avec hampe verticale. Très utilisée dans les hymnes et ballades.',
+    detail:'En 4/4 : la blanche dure la moitié de la mesure. 1 blanche = 2 noires = 4 croches.' },
+  { id:'noire',      cat:'Valeurs', name:'Noire',           symbol:'♩', color:'#10B981',
+    desc:'1 temps. Tête pleine avec hampe. La valeur de référence du rythme (BPM).',
+    detail:'Le tempo en BPM compte les noires par minute. 90 BPM = 90 noires/minute.' },
+  { id:'croche',     cat:'Valeurs', name:'Croche',          symbol:'♪', color:'#10B981',
+    desc:'1/2 temps. Noire avec un crochet sur la hampe. Souvent regroupée par paires.',
+    detail:'2 croches = 1 noire. Reliées par une barre quand groupées. Base du swing en jazz.' },
+  { id:'dcr',        cat:'Valeurs', name:'Double-croche',   symbol:'𝅘𝅥𝅯', color:'#10B981',
+    desc:'1/4 temps. 2 crochets sur la hampe. Passages rapides et ornements.',
+    detail:"4 doubles-croches = 1 noire. Très présentes dans les concertos et l'ornementation baroque." },
+  
+  // CHIFFRAGE
+  { id:'c44',        cat:'Chiffrage', name:'4/4 — Commun',  symbol:'𝄴', color:'#F59E0B',
+    desc:'4 temps par mesure, noire = 1 temps. Le plus fréquent : pop, jazz, classique.',
+    detail:"Chiffre du haut = nb de temps. Chiffre du bas = valeur d'1 temps (4 = noire, 8 = croche)." },
+  { id:'c34',        cat:'Chiffrage', name:'3/4 — Valse',   symbol:'¾', color:'#F59E0B',
+    desc:'3 temps par mesure. Rythme de la valse. Un-deux-trois, un-deux-trois.',
+    detail:"Valse, menuet, scherzo : tous en 3/4. L'accent fort tombe sur le premier temps." },
+  { id:'c68',        cat:'Chiffrage', name:'6/8',           symbol:'6/8', color:'#F59E0B',
+    desc:'6 croches par mesure, ressenties en 2 temps à 3 croches chacun. Gigue, barcarolle.',
+    detail:'6/8 ≠ 3/4. En 6/8 on ressent 2 grands temps balancés. C\'est le rythme "boiteux" du jazz.' },
+  
+  // ALTÉRATIONS
+  { id:'diese',      cat:'Altérations', name:'Dièse',       symbol:'♯', color:'#EF4444',
+    desc:"Monte la note d'1 demi-ton. Do♯ est entre Do et Ré.",
+    detail:"S'applique à toutes les notes identiques de la mesure sauf indication contraire." },
+  { id:'bemol',      cat:'Altérations', name:'Bémol',       symbol:'♭', color:'#EF4444',
+    desc:"Descend la note d'1 demi-ton. Si♭ est entre La et Si.",
+    detail:"Essentiel pour les gammes mineures. Les armures (clé) utilisent dièses ou bémols." },
+  { id:'becarre',    cat:'Altérations', name:'Bécarre',     symbol:'♮', color:'#EF4444',
+    desc:'Annule un dièse ou bémol précédent. Ramène à la hauteur naturelle.',
+    detail:"Si une note a été altérée dans la mesure ou l'armure, le bécarre l'annule localement." },
+  
+  // NUANCES
+  { id:'p-doux',     cat:'Nuances', name:'Piano (p)',       symbol:'𝒑', color:'#A78BFA',
+    desc:'Jouer doucement. Échelle : ppp → pp → p → mp → mf → f → ff → fff.',
+    detail:'Les nuances viennent de l\'italien. "Piano" = doux. C\'est aussi pourquoi l\'instrument s'appelle piano-forte.' },
+  { id:'f-fort',     cat:'Nuances', name:'Forte (f)',       symbol:'𝒇', color:'#A78BFA',
+    desc:'Jouer fort. mf = mezzoforte (moyennement fort). ff = fortissimo (très fort).',
+    detail:'"Forte" = fort en italien. Les nuances sont relatives : f après pp semble encore plus percutant.' },
+  { id:'cresc',      cat:'Nuances', name:'Crescendo',       symbol:'<', color:'#A78BFA',
+    desc:'Progressivement plus fort. Représenté par un signe < ou un coin ouvert à droite.',
+    detail:'Le contraire est decrescendo (ou diminuendo). Ces variations de volume créent l\'émotion musicale.' },
+];
+function SymbolesMusique() {
+  const [screen,   setScreen]   = useState('menu');
+  const [activeCat,setActiveCat]= useState(null);
+  const [exList,   setExList]   = useState([]);
+  const [exIdx,    setExIdx]    = useState(0);
   const [answered, setAnswered] = useState(false);
-  const [userAnswer, setUserAnswer] = useState(null);
-  const [score, setScore] = useState({correct:0,total:0});
+  const [userAns,  setUserAns]  = useState(null);
+  const [score,    setScore]    = useState({correct:0,total:0});
+  const [exDone,   setExDone]   = useState(false);
 
-  const genNote = () => {
-    const n = SOLFEGE_MAP[Math.floor(Math.random()*SOLFEGE_MAP.length)];
-    setExNote(n); setAnswered(false); setUserAnswer(null);
-    playNote(n.semi + 4*12, 0);
-  };
+  const CATS = [...new Set(MUSIC_SYMBOLS.map(s=>s.cat))];
+  const filtered = activeCat ? MUSIC_SYMBOLS.filter(s=>s.cat===activeCat) : MUSIC_SYMBOLS;
 
-  useEffect(()=>{ if(mode==='exercice') genNote(); },[mode]);
+  function startExercice() {
+    const shuffled=[...MUSIC_SYMBOLS].sort(()=>Math.random()-.5).slice(0,12);
+    setExList(shuffled);setExIdx(0);setAnswered(false);setUserAns(null);
+    setScore({correct:0,total:0});setExDone(false);setScreen('exercice');
+  }
 
-  const handleAnswer = (note) => {
-    if(answered) return;
-    setUserAnswer(note.fr); setAnswered(true);
-    const ok = note.fr === exNote.fr;
-    setScore(s=>({correct:s.correct+(ok?1:0), total:s.total+1}));
-    if(ok) playNote(exNote.semi + 4*12, 0);
-  };
+  function handleExAnswer(id) {
+    if(answered)return;
+    const ok=id===exList[exIdx].id;
+    setUserAns(id);setAnswered(true);
+    setScore(s=>({correct:s.correct+(ok?1:0),total:s.total+1}));
+  }
 
-  return (
-    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-      {/* Mode tabs */}
-      <div style={{display:'flex',borderBottom:'0.5px solid rgba(240,235,224,0.08)',background:'rgba(15,14,12,0.4)',flexShrink:0}}>
-        {[['reference','Référence'],['exercice','Exercice']].map(([id,label])=>(
-          <button key={id} onClick={()=>setMode(id)} style={{flex:1,padding:'.6rem',background:'none',border:'none',color:mode===id?'#F7DC6F':'rgba(240,235,224,0.35)',cursor:'pointer',fontFamily:'monospace',fontSize:11,letterSpacing:'.08em',borderBottom:mode===id?'1.5px solid #F7DC6F':'1.5px solid transparent',transition:'all 0.2s'}}>
-            {label.toUpperCase()}
+  function nextEx() {
+    if(exIdx>=exList.length-1){setExDone(true);return;}
+    setExIdx(i=>i+1);setAnswered(false);setUserAns(null);
+  }
+
+  // ── MENU ────────────────────────────────────────────────────────────────────
+  if(screen==='menu') return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Symboles Musicaux</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>DÉCHIFFRER UNE PARTITION</p>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:'1.5rem'}}>
+        {[
+          {id:'ref',icon:'📚',label:'Référentiel', sub:'Tous les symboles classés',color:'#85C1E9'},
+          {id:'ex', icon:'🎯',label:'Exercice',    sub:'Identifier les symboles', color:'#82E0AA'},
+        ].map(b=>(
+          <button key={b.id} onClick={()=>b.id==='ref'?setScreen('reference'):startExercice()}
+            style={{background:`${b.color}10`,border:`1.5px solid ${b.color}40`,borderRadius:14,padding:'1.25rem',cursor:'pointer',textAlign:'center',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${b.color}20`;e.currentTarget.style.borderColor=b.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 8px 20px ${b.color}30`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${b.color}10`;e.currentTarget.style.borderColor=`${b.color}40`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}>
+            <span style={{fontSize:30}}>{b.icon}</span>
+            <div style={{fontSize:14,fontWeight:'bold',color:b.color,fontFamily:'Georgia,serif'}}>{b.label}</div>
+            <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{b.sub}</div>
           </button>
         ))}
       </div>
-
-      {mode === 'reference' && (
-        <div style={{flex:1,overflowY:'auto',padding:'1rem'}}>
-          <div style={{marginBottom:'1.25rem'}}>
-            <h3 style={{fontSize:16,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.01em'}}>Les 7 notes</h3>
-            <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>SOLFÈGE FRANÇAIS → NOM ANGLAIS</p>
-          </div>
-
-          {/* Reference table */}
-          <div style={{display:'flex',flexDirection:'column',gap:7,marginBottom:'1.5rem'}}>
-            {SOLFEGE_MAP.map(n=>(
-              <div key={n.fr} onClick={()=>playNote(n.semi+4*12,0)} style={{display:'flex',alignItems:'center',gap:12,background:`${n.color}10`,border:`0.5px solid ${n.color}40`,borderRadius:4,padding:'.75rem 1rem',cursor:'pointer',transition:'all 0.2s'}}
-                onMouseEnter={e=>{e.currentTarget.style.background=`${n.color}20`;}}
-                onMouseLeave={e=>{e.currentTarget.style.background=`${n.color}10`;}}>
-                <div style={{width:40,height:40,borderRadius:'50%',background:n.color,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                  <span style={{fontSize:16,fontWeight:'bold',color:'#0f0e0c',fontFamily:'Georgia,serif'}}>{n.en}</span>
-                </div>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:20,fontWeight:'bold',color:n.color,fontFamily:'Georgia,serif',lineHeight:1}}>{n.fr}</div>
-                  <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',marginTop:2}}>Note n°{n.semi+1} de la gamme chromatique</div>
-                </div>
-                <span style={{fontSize:11,opacity:.35,fontFamily:'monospace'}}>🔊</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Chromatic table */}
-          <div style={{marginBottom:'1rem'}}>
-            <div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.75rem'}}>GAMME CHROMATIQUE COMPLÈTE</div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:5}}>
-              {SOLFEGE_CHROM.map(n=>(
-                <div key={n.semi} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'.5rem .75rem',background:'rgba(240,235,224,0.03)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:3}}>
-                  <span style={{fontSize:13,fontWeight:'bold',fontFamily:'monospace',color:'#f0ebe0'}}>{n.fr}</span>
-                  <span style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>{n.en}</span>
-                </div>
-              ))}
+      <div style={{fontSize:10,opacity:.35,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>CATÉGORIES ({MUSIC_SYMBOLS.length} symboles)</div>
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {CATS.map(cat=>{
+          const syms=MUSIC_SYMBOLS.filter(s=>s.cat===cat),c=syms[0].color;
+          return(<div key={cat} style={{padding:'.9rem 1rem',background:`${c}08`,border:`1px solid ${c}25`,borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <div style={{fontSize:13,fontWeight:'bold',color:c,fontFamily:'Georgia,serif'}}>{cat}</div>
+              <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',marginTop:2}}>{syms.length} symbole{syms.length>1?'s':''}</div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {mode === 'exercice' && (
-        <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
-          {/* Score */}
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'.65rem 1rem',background:'rgba(240,235,224,0.03)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:3}}>
-            <span style={{fontSize:10,opacity:.4,fontFamily:'monospace'}}>SCORE DE SESSION</span>
-            <span style={{fontSize:14,fontWeight:'bold',color:'#F7DC6F',fontFamily:'monospace'}}>{score.correct}/{score.total}</span>
-          </div>
-
-          {/* Note display */}
-          {exNote && (
-            <div style={{textAlign:'center',padding:'1.5rem',background:'rgba(240,235,224,0.02)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:4}}>
-              <p style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'1.25rem'}}>QUELLE EST CETTE NOTE EN SOLFÈGE ?</p>
-              <div style={{width:72,height:72,borderRadius:'50%',background:exNote.color,margin:'0 auto 1rem',display:'flex',alignItems:'center',justifyContent:'center',fontSize:26,fontWeight:'bold',color:'#0f0e0c',fontFamily:'Georgia,serif'}}>
-                {exNote.en}
-              </div>
-              {answered && (
-                <div style={{animation:'fadeIn 0.3s ease',marginBottom:'.75rem'}}>
-                  <div style={{fontSize:16,fontWeight:'bold',color:userAnswer===exNote.fr?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:4}}>
-                    {userAnswer===exNote.fr?`✓ Oui, c'est ${exNote.fr} !`:`✗ Non — c'est ${exNote.fr}`}
-                  </div>
-                </div>
-              )}
-              <button onClick={()=>exNote&&playNote(exNote.semi+4*12,0)} style={{background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.15)',color:'rgba(240,235,224,0.6)',padding:'.4rem .9rem',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em'}}>
-                🔊 ÉCOUTER
-              </button>
+            <div style={{display:'flex',gap:6,alignItems:'center'}}>
+              {syms.slice(0,4).map(s=><span key={s.id} style={{fontSize:18,opacity:.85}}>{s.symbol}</span>)}
             </div>
-          )}
-
-          {/* Solfège answer buttons */}
-          <div>
-            <div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>CHOISIR</div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
-              {SOLFEGE_MAP.map(n=>{
-                const isUser = userAnswer === n.fr;
-                const isOk = exNote?.fr === n.fr;
-                let bg=`${n.color}10`, border=`${n.color}40`, col=n.color;
-                if(answered){
-                  if(isOk){bg=`${n.color}25`;border=n.color;}
-                  else if(isUser){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}
-                  else{col=`${n.color}50`;}
-                }
-                return(
-                  <button key={n.fr} onClick={()=>handleAnswer(n)} disabled={answered}
-                    style={{background:bg,border:`0.5px solid ${border}`,color:col,padding:'.7rem .25rem',borderRadius:3,cursor:answered?'default':'pointer',fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',transition:'all 0.2s'}}>
-                    {n.fr}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {answered && (
-            <button onClick={genNote} style={{width:'100%',padding:'.9rem',background:'rgba(247,220,111,0.1)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
-              NOTE SUIVANTE →
-            </button>
-          )}
-        </div>
-      )}
+          </div>);
+        })}
+      </div>
     </div>
   );
+
+  // ── RÉFÉRENTIEL ──────────────────────────────────────────────────────────────
+  if(screen==='reference') return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.7rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:'.5rem'}}>
+          <button onClick={()=>{setScreen('menu');setActiveCat(null);}} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:16}}>←</button>
+          <span style={{fontSize:13,fontWeight:'bold',fontFamily:'Georgia,serif'}}>Référentiel</span>
+          <span style={{fontSize:10,opacity:.35,fontFamily:'monospace',marginLeft:'auto'}}>{filtered.length} symboles</span>
+        </div>
+        <div style={{display:'flex',gap:5,overflowX:'auto',paddingBottom:2}}>
+          <button onClick={()=>setActiveCat(null)} style={{padding:'3px 10px',background:!activeCat?'rgba(255,255,255,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${!activeCat?'rgba(255,255,255,0.4)':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:!activeCat?'#fff':'rgba(255,255,255,0.4)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>Tous</button>
+          {CATS.map(cat=>{
+            const c=MUSIC_SYMBOLS.find(s=>s.cat===cat)?.color||'#fff';
+            return <button key={cat} onClick={()=>setActiveCat(cat===activeCat?null:cat)} style={{padding:'3px 10px',background:activeCat===cat?`${c}20`:'rgba(255,255,255,0.04)',border:`1px solid ${activeCat===cat?c:'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:activeCat===cat?c:'rgba(255,255,255,0.4)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>{cat}</button>;
+          })}
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1rem',display:'flex',flexDirection:'column',gap:8}}>
+        {filtered.map(sym=>(
+          <div key={sym.id} style={{background:`${sym.color}08`,border:`1px solid ${sym.color}22`,borderRadius:12,padding:'1rem',display:'flex',gap:12,alignItems:'flex-start',animation:'fadeIn 0.25s ease'}}>
+            <div style={{width:50,height:50,borderRadius:10,background:`${sym.color}18`,border:`1.5px solid ${sym.color}45`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,flexShrink:0}}>{sym.symbol}</div>
+            <div style={{flex:1}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:4}}>
+                <div style={{fontSize:14,fontWeight:'bold',color:sym.color,fontFamily:'Georgia,serif'}}>{sym.name}</div>
+                <span style={{fontSize:8,fontFamily:'monospace',color:sym.color,opacity:.6,padding:'2px 6px',background:`${sym.color}15`,borderRadius:6,flexShrink:0,marginLeft:6}}>{sym.cat}</span>
+              </div>
+              <p style={{fontSize:12,opacity:.72,margin:'0 0 .4rem',lineHeight:1.55,fontFamily:'Georgia,serif'}}>{sym.desc}</p>
+              <p style={{fontSize:11,opacity:.42,margin:0,lineHeight:1.5,fontFamily:'monospace',fontStyle:'italic',borderLeft:`2px solid ${sym.color}40`,paddingLeft:8}}>{sym.detail}</p>
+            </div>
+          </div>
+        ))}
+        <div style={{height:'.5rem'}}/>
+      </div>
+    </div>
+  );
+
+  // ── RÉSULTATS ────────────────────────────────────────────────────────────────
+  if(exDone) {
+    const pct=Math.round((score.correct/score.total)*100),mc=pct>=85?'#82E0AA':pct>=60?'#F7DC6F':'#F1948A';
+    return(<div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+      <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+        <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
+        <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
+        <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
+        <div style={{fontSize:13,opacity:.5,fontFamily:'Georgia,serif',marginTop:8}}>{pct>=85?'Tu maîtrises les symboles musicaux ! 🎉':pct>=60?'Bonne progression !':'Consulte le référentiel et réessaie !'}</div>
+      </div>
+      <button onClick={startExercice} style={{padding:'.9rem',background:'rgba(130,224,170,0.15)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>🔄 NOUVEL EXERCICE</button>
+      <button onClick={()=>setScreen('reference')} style={{padding:'.9rem',background:'rgba(133,193,233,0.1)',border:'1px solid rgba(133,193,233,0.3)',color:'#85C1E9',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>📚 RÉFÉRENTIEL</button>
+      <button onClick={()=>setScreen('menu')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>← MENU</button>
+    </div>);
+  }
+
+  // ── EXERCICE ─────────────────────────────────────────────────────────────────
+  if(screen==='exercice'&&exList.length>0) {
+    const ex=exList[exIdx];
+    const progress=((exIdx+1)/exList.length)*100;
+    const pool=MUSIC_SYMBOLS.filter(s=>s.id!==ex.id&&s.cat===ex.cat);
+    const samecat=pool.sort(()=>Math.random()-.5).slice(0,3);
+    // If not enough in same cat, fill from others
+    const fill=MUSIC_SYMBOLS.filter(s=>s.id!==ex.id&&!samecat.find(x=>x.id===s.id)).sort(()=>Math.random()-.5).slice(0,3-samecat.length);
+    const options=[...samecat,...fill,ex].sort(()=>Math.random()-.5);
+    const isRight=answered&&userAns===ex.id;
+    return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.7rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{exIdx+1}/{exList.length}</span>
+        <div style={{flex:1,margin:'0 1rem',height:4,background:'rgba(255,255,255,0.08)',borderRadius:2,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${progress}%`,background:'#82E0AA',borderRadius:2,transition:'width 0.3s ease'}}/>
+        </div>
+        <span style={{fontSize:10,fontFamily:'monospace',color:'#82E0AA'}}>{score.correct} ✓</span>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Symbol to identify */}
+        <div style={{textAlign:'center',padding:'1.75rem 1rem',background:`${ex.color}10`,border:`1.5px solid ${ex.color}35`,borderRadius:16,animation:'fadeIn 0.3s ease'}}>
+          <div style={{fontSize:10,letterSpacing:'.15em',opacity:.4,fontFamily:'monospace',marginBottom:'1rem'}}>QUEL EST CE SYMBOLE ?</div>
+          <div style={{fontSize:76,lineHeight:1.1,marginBottom:'1.25rem',filter:`drop-shadow(0 4px 14px ${ex.color}55)`}}>{ex.symbol}</div>
+          {answered&&(<div style={{animation:'fadeIn 0.25s ease'}}>
+            <div style={{fontSize:15,fontWeight:'bold',color:isRight?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:6}}>{isRight?`✓ ${ex.name} !`:`✗ C'était : ${ex.name}`}</div>
+            <p style={{fontSize:12,opacity:.65,lineHeight:1.55,margin:'0 auto',maxWidth:280,fontFamily:'Georgia,serif'}}>{ex.desc}</p>
+          </div>)}
+        </div>
+        {/* 4 answer options */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          {options.map(opt=>{
+            const isC=opt.id===ex.id,isU=userAns===opt.id;
+            let bg='rgba(255,255,255,0.04)',border='rgba(255,255,255,0.12)',col='rgba(255,255,255,0.78)';
+            if(answered){if(isC){bg=`${opt.color}20`;border=opt.color;col=opt.color;}else if(isU){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}else{col='rgba(255,255,255,0.22)';}}
+            return(<button key={opt.id} onClick={()=>handleExAnswer(opt.id)} disabled={answered}
+              style={{background:bg,border:`1.5px solid ${border}`,color:col,padding:'.85rem .5rem',borderRadius:12,cursor:answered?'default':'pointer',fontSize:11.5,fontFamily:'Georgia,serif',fontWeight:'bold',textAlign:'center',transition:'all 0.2s',lineHeight:1.4}}
+              onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${opt.color}12`;e.currentTarget.style.borderColor=`${opt.color}55`;}}}
+              onMouseLeave={e=>{if(!answered){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.12)';}}}
+            ><div style={{fontSize:22,marginBottom:4}}>{opt.symbol}</div>{opt.name}</button>);
+          })}
+        </div>
+        {answered&&(<button onClick={nextEx} style={{width:'100%',padding:'.9rem',background:isRight?'rgba(130,224,170,0.12)':'rgba(241,148,138,0.08)',border:`1.5px solid ${isRight?'#82E0AA':'#F1948A'}`,color:isRight?'#82E0AA':'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
+          {exIdx>=exList.length-1?'VOIR LES RÉSULTATS →':'SYMBOLE SUIVANT →'}
+        </button>)}
+      </div>
+    </div>);
+  }
+  return null;
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// ── EXERCICES PAGE (wrapper) ──────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════════════════════
+
 // ── Portée musicale SVG ───────────────────────────────────────────────────────
 function MusicStaff({ notes, currentIdx, feedback }) {
-  const NOTE_Y = { C4:105,D4:100,E4:95,F4:90,G4:85,A4:80,B4:75,C5:70,D5:65,E5:60,F5:55 };
-  const STAFF_LINES = [95,85,75,65,55];
-  const spacing = Math.min(52, 280/Math.max(notes.length,1));
-  const svgW = 58 + notes.length * spacing + 18;
-  const getColor = (i) => {
-    if(i < currentIdx) return '#999';
-    if(i > currentIdx) return '#ccc';
-    if(feedback==='correct') return '#22c55e';
-    if(feedback==='wrong')   return '#ef4444';
-    return '#4a9eff';
-  };
-  return (
-    <div style={{overflowX:'auto',borderRadius:6,background:'#faf9f4',padding:'6px 0 4px'}}>
-      <svg viewBox={`0 0 ${svgW} 125`} style={{minWidth:svgW,height:105,display:'block'}}>
-        {STAFF_LINES.map((y,i)=><line key={i} x1={42} y1={y} x2={svgW-5} y2={y} stroke="#2a2620" strokeWidth={0.9}/>)}
-        <text x={3} y={105} fontSize={68} fill="#2a2620" fontFamily="'Georgia','Times New Roman',serif" style={{userSelect:'none'}}>𝄞</text>
+  // Map note name → staff position (0 = bottom line C4, higher = higher on staff)
+  const NOTE_POS  = {C4:0,D4:1,E4:2,F4:3,G4:4,A4:5,B4:6,C5:7,D5:8,E5:9,F5:10,G5:11};
+  const SOL_COLORS= {C4:'#E8A87C',D4:'#85C1E9',E4:'#82E0AA',F4:'#F1948A',G4:'#C39BD3',A4:'#F7DC6F',B4:'#AED6F1',
+                     C5:'#E8A87C',D5:'#85C1E9',E5:'#82E0AA',F5:'#F1948A',G5:'#C39BD3'};
+  const SOLFEGE   = {C4:'Do',D4:'Ré',E4:'Mi',F4:'Fa',G4:'Sol',A4:'La',B4:'Si',C5:'Do',D5:'Ré',E5:'Mi',F5:'Fa',G5:'Sol'};
+  const staffH=80, lineGap=10, firstLine=staffH-10, noteR=5.5;
+  const noteToY = (n) => firstLine - (NOTE_POS[n]||0)*(lineGap/2);
+  const W=Math.max(320, notes.length*44+40);
+
+  return(
+    <div style={{overflowX:'auto'}}>
+      <svg viewBox={`0 0 ${W} ${staffH+32}`} width={W} height={staffH+32} style={{display:'block',margin:'0 auto'}}>
+        {/* 5 staff lines */}
+        {[0,1,2,3,4].map(i=>(
+          <line key={i} x1="16" x2={W-16}
+            y1={firstLine-i*lineGap} y2={firstLine-i*lineGap}
+            stroke="#333" strokeWidth="1.2"/>
+        ))}
+        {/* Notes */}
         {notes.map((note,ni)=>{
-          const x=57+ni*spacing, y=NOTE_Y[note]??75, col=getColor(ni), stemUp=y>=75;
-          return (<g key={ni}>
-            {note==='C4'&&<line x1={x-9} y1={105} x2={x+9} y2={105} stroke={col} strokeWidth={1.2}/>}
-            <ellipse cx={x} cy={y} rx={5.5} ry={4} fill={ni<=currentIdx?col:'#ddd'} stroke={ni<=currentIdx?col:'#bbb'} strokeWidth={0.8}/>
-            {stemUp?<line x1={x+5.2} y1={y-1} x2={x+5.2} y2={y-26} stroke={col} strokeWidth={1.5}/>:<line x1={x-5.2} y1={y+1} x2={x-5.2} y2={y+26} stroke={col} strokeWidth={1.5}/>}
-          </g>);
+          const x = 36+ni*44;
+          const y = noteToY(note);
+          const col = SOL_COLORS[note]||'#888';
+          const isCurrent = ni===currentIdx;
+          const isPast    = ni<currentIdx;
+          const fillCol   = isCurrent
+            ? (feedback==='correct'?'#82E0AA':feedback==='wrong'?'#F1948A':col)
+            : isPast?`${col}70`:`${col}30`;
+          const borderCol = isCurrent?fillCol:isPast?`${col}90`:`${col}55`;
+          // Ledger lines
+          const needLedgerBelow = NOTE_POS[note]<0;
+          const needLedgerAbove = NOTE_POS[note]>8;
+          const needMiddle      = note==='C4'||note==='C5';
+          return(
+            <g key={ni}>
+              {needMiddle&&<line x1={x-8} x2={x+8} y1={y} y2={y} stroke={col} strokeWidth="1.2"/>}
+              {/* Note head */}
+              <ellipse cx={x} cy={y} rx={noteR+.5} ry={noteR}
+                fill={isPast?fillCol:isCurrent?fillCol:`${col}20`}
+                stroke={borderCol} strokeWidth={isCurrent?2:1.2}
+                opacity={isPast||isCurrent?1:0.55}/>
+              {/* Stem */}
+              {(NOTE_POS[note]||0)>=4
+                ? <line x1={x-noteR} y1={y} x2={x-noteR} y2={y+26} stroke={borderCol} strokeWidth="1.2"/>
+                : <line x1={x+noteR} y1={y} x2={x+noteR} y2={y-26} stroke={borderCol} strokeWidth="1.2"/>}
+              {/* Solfège below */}
+              <text x={x} y={staffH+26} textAnchor="middle" fontSize={9}
+                fill={isCurrent?col:isPast?`${col}80`:`${col}45`}
+                fontFamily="monospace" fontWeight={isCurrent?'bold':'normal'}>
+                {SOLFEGE[note]||note}
+              </text>
+            </g>
+          );
         })}
-        {notes.map((_,ni)=>ni===currentIdx&&(<text key={`a${ni}`} x={57+ni*spacing} y={118} textAnchor="middle" fontSize={8} fill="#4a9eff" fontFamily="monospace">▲</text>))}
+        {/* Treble clef simplified */}
+        <text x={4} y={firstLine-15} fontSize={36} fill="#555" fontFamily="serif">𝄞</text>
       </svg>
     </div>
   );
 }
 
-// ── Exercice de lecture de partition ─────────────────────────────────────────
 function LectureExercice() {
-  const NOTE_SOLFEGE={C4:'Do',D4:'Ré',E4:'Mi',F4:'Fa',G4:'Sol',A4:'La',B4:'Si',C5:'Do',D5:'Ré',E5:'Mi',F5:'Fa'};
-  const NOTE_SEMI={C4:0,D4:2,E4:4,F4:5,G4:7,A4:9,B4:11,C5:12,D5:14,E5:16,F5:17};
-  const SOLFEGES=['Do','Ré','Mi','Fa','Sol','La','Si'];
-  const SOL_COLORS={Do:'#E8A87C',Ré:'#85C1E9',Mi:'#82E0AA',Fa:'#F1948A',Sol:'#C39BD3',La:'#F7DC6F',Si:'#AED6F1'};
-  const [melody,setMelody]=useState(null);
-  const [noteIdx,setNoteIdx]=useState(0);
-  const [feedback,setFeedback]=useState(null);
-  const [score,setScore]=useState({correct:0,total:0});
-  const [done,setDone]=useState(false);
-  const currentNote=melody?melody.notes[noteIdx]:null;
-  const correctSolfege=currentNote?NOTE_SOLFEGE[currentNote]:null;
-  const handleAnswer=(sol)=>{
-    if(feedback)return;
-    const ok=sol===correctSolfege;
-    setFeedback(ok?'correct':'wrong');
+  const SOLFEGES  = ['Do','Ré','Mi','Fa','Sol','La','Si'];
+  const SOL_COLORS= {Do:'#E8A87C',Ré:'#85C1E9',Mi:'#82E0AA',Fa:'#F1948A',Sol:'#C39BD3',La:'#F7DC6F',Si:'#AED6F1'};
+
+  const [screen,     setScreen]    = useState('select'); // select | intervalPicker | play | done
+  const [selMelody,  setSelMelody] = useState(null);     // LECTURE_MELODIES item
+  const [notes,      setNotes]     = useState([]);       // resolved notes array
+  const [interval,   setInterval_] = useState(3);        // pour mélodie sautée
+  const [noteIdx,    setNoteIdx]   = useState(0);
+  const [feedback,   setFeedback]  = useState(null);
+  const [score,      setScore]     = useState({correct:0,total:0});
+
+  function pickMelody(m) {
+    if (m.isIntervalPicker) { setSelMelody(m); setScreen('intervalPicker'); return; }
+    const resolved = m.fixed ? m.notes : generateLectureMelody(m.length||7, m.maxInterval||null);
+    setSelMelody(m); setNotes(resolved);
+    setNoteIdx(0); setFeedback(null); setScore({correct:0,total:0});
+    setScreen('play');
+  }
+
+  function startWithInterval() {
+    const resolved = generateLectureMelody(selMelody.length||7, interval);
+    setNotes(resolved); setNoteIdx(0); setFeedback(null); setScore({correct:0,total:0});
+    setScreen('play');
+  }
+
+  function regenMelody() {
+    if (!selMelody || selMelody.fixed) return;
+    const maxInt = selMelody.isIntervalPicker ? interval : selMelody.maxInterval;
+    const resolved = generateLectureMelody(selMelody.length||7, maxInt);
+    setNotes(resolved); setNoteIdx(0); setFeedback(null); setScore({correct:0,total:0});
+  }
+
+  const currentNote     = notes[noteIdx];
+  const correctSolfege  = currentNote ? LECTURE_SOLFEGE[currentNote] : null;
+
+  function handleAnswer(sol) {
+    if (feedback) return;
+    const ok = sol === correctSolfege;
+    setFeedback(ok ? 'correct' : 'wrong');
     setScore(s=>({correct:s.correct+(ok?1:0),total:s.total+1}));
-    playNote(NOTE_SEMI[currentNote]??0,0,1.2);
+    const semi = LECTURE_NOTE_SEMI[currentNote]??0;
+    playNote(semi, 0, 1.0);
     setTimeout(()=>{
       setFeedback(null);
-      if(noteIdx>=melody.notes.length-1)setDone(true);
+      if (noteIdx >= notes.length-1) setScreen('done');
       else setNoteIdx(i=>i+1);
-    },900);
-  };
-  const restart=()=>{setNoteIdx(0);setFeedback(null);setScore({correct:0,total:0});setDone(false);};
-  if(!melody)return(
+    }, 900);
+  }
+
+  // ── Select screen ───────────────────────────────────────────────────────────
+  if (screen==='select') return (
     <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
-      <div style={{marginBottom:'1.25rem'}}><h3 style={{fontSize:16,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.01em'}}>Lecture de partition</h3><p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>CHOISIR UNE MÉLODIE</p></div>
-      <div style={{padding:'.75rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.15)',borderRadius:4,marginBottom:'1rem'}}><p style={{fontSize:12,opacity:.55,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>La portée affiche la mélodie complète. Identifie chaque note en solfège au fur et à mesure.</p></div>
+      <div style={{marginBottom:'1.25rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:'.35rem'}}>Lecture de partition</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',letterSpacing:'.08em'}}>CHOISIR UNE MÉLODIE</p>
+      </div>
+      <div style={{padding:'.85rem',background:'rgba(133,193,233,0.07)',border:'1px solid rgba(133,193,233,0.2)',borderRadius:12,marginBottom:'1.25rem'}}>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>La portée affiche la mélodie. Identifie chaque note en solfège. Les mélodies marquées 🎲 sont générées aléatoirement — jamais la même !</p>
+      </div>
       <div style={{display:'flex',flexDirection:'column',gap:8}}>
-        {LECTURE_MELODIES.map(m=>(<button key={m.id} onClick={()=>{setMelody(m);setNoteIdx(0);setDone(false);setScore({correct:0,total:0});}} style={{background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.2)',borderRadius:4,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}} onMouseEnter={e=>{e.currentTarget.style.background='rgba(247,220,111,0.1)';e.currentTarget.style.borderColor='rgba(247,220,111,0.4)';}} onMouseLeave={e=>{e.currentTarget.style.background='rgba(247,220,111,0.05)';e.currentTarget.style.borderColor='rgba(247,220,111,0.2)';}}>
-          <div style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',marginBottom:3}}>{m.title}</div>
-          <div style={{fontSize:10,opacity:.45,fontFamily:'monospace'}}>{m.desc} — {m.notes.length} NOTES</div>
-        </button>))}
+        {LECTURE_MELODIES.map(m=>{
+          const color = m.fixed?'#85C1E9':'#82E0AA';
+          return(
+          <button key={m.id} onClick={()=>pickMelody(m)}
+            style={{background:`${color}08`,border:`1px solid ${color}30`,borderRadius:12,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${color}15`;e.currentTarget.style.borderColor=color;e.currentTarget.style.transform='translateY(-1px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${color}08`;e.currentTarget.style.borderColor=`${color}30`;e.currentTarget.style.transform='translateY(0)';}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+              <div style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',color,marginBottom:3}}>{m.title}</div>
+              <span style={{fontSize:12,opacity:.6}}>{m.fixed?'📄':'🎲'}</span>
+            </div>
+            <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{m.desc} {!m.fixed&&`· ${m.length} NOTES`}</div>
+          </button>
+          );
+        })}
       </div>
     </div>
   );
-  if(done){
-    const pct=Math.round((score.correct/score.total)*100),mc=pct>=90?'#82E0AA':pct>=70?'#85C1E9':pct>=50?'#F7DC6F':'#F1948A';
-    const msg=pct>=90?'Excellent ! 🎉':pct>=70?'Très bien ! 👍':pct>=50?'Continue !':'Entraîne-toi encore !';
-    return(<div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
-      <div style={{textAlign:'center',padding:'1.5rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.2)',borderRadius:4}}>
-        <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1rem'}}>RÉSULTATS — {melody.title}</div>
-        <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
-        <div style={{fontSize:20,color:mc,marginBottom:'.5rem'}}>{pct}%</div>
-        <div style={{fontSize:14,opacity:.6,fontFamily:'Georgia,serif'}}>{msg}</div>
+
+  // ── Interval picker ─────────────────────────────────────────────────────────
+  if (screen==='intervalPicker') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:'1.5rem'}}>
+        <button onClick={()=>setScreen('select')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',margin:0}}>Mélodie sautée</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>CHOISIR L'INTERVALLE MAXIMUM</p>
+        </div>
       </div>
-      <div style={{display:'flex',flexDirection:'column',gap:8}}>
-        <button onClick={restart} style={{padding:'.9rem',background:'rgba(247,220,111,0.15)',border:'1px solid #F7DC6F',color:'#F7DC6F',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em',fontWeight:'bold'}}>🔄 RECOMMENCER</button>
-        <button onClick={()=>{setMelody(null);setDone(false);setScore({correct:0,total:0});}} style={{padding:'.9rem',background:'transparent',border:'0.5px solid rgba(240,235,224,0.2)',color:'rgba(240,235,224,0.5)',borderRadius:3,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.15em'}}>CHOISIR UNE AUTRE MÉLODIE</button>
+      <div style={{padding:'1rem',background:'rgba(130,224,170,0.07)',border:'1px solid rgba(130,224,170,0.2)',borderRadius:12,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12,opacity:.65,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>L'intervalle maximum définit le plus grand écart possible entre deux notes consécutives. Plus l'intervalle est grand, plus la mélodie est difficile à lire.</p>
       </div>
-    </div>);
-  }
-  return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-    <div style={{padding:'.7rem 1.25rem',borderBottom:'0.5px solid rgba(240,235,224,0.08)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-      <button onClick={()=>setMelody(null)} style={{background:'none',border:'none',color:'rgba(240,235,224,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11}}>← Choisir</button>
-      <div style={{flex:1,margin:'0 1rem'}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:9,fontFamily:'monospace',opacity:.4}}>{noteIdx+1}/{melody.notes.length}</span><span style={{fontSize:9,fontFamily:'monospace',color:'#82E0AA'}}>{score.correct}/{score.total} ✓</span></div><div style={{height:3,background:'rgba(240,235,224,0.08)',borderRadius:2}}><div style={{height:'100%',width:`${(noteIdx/melody.notes.length)*100}%`,background:'#F7DC6F',borderRadius:2,transition:'width 0.3s ease'}}/></div></div>
-      <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{melody.title}</span>
+      <div style={{marginBottom:'1.5rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>
+          INTERVALLE MAX : <span style={{color:'#82E0AA',fontWeight:'bold'}}>{interval} demi-tons ({['','','Seconde','Tierce mineure','Tierce majeure','Quarte','Triton','Quinte'][interval]||interval+' demi-tons'})</span>
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {[
+            {v:2,label:'2 — Conjoint'},
+            {v:3,label:'3 — Tierce min.'},
+            {v:4,label:'4 — Tierce maj.'},
+            {v:5,label:'5 — Quarte'},
+            {v:7,label:'7 — Quinte'},
+            {v:12,label:'12 — Octave'},
+          ].map(({v,label})=>(
+            <button key={v} onClick={()=>setInterval_(v)}
+              style={{padding:'.55rem .9rem',background:interval===v?'rgba(130,224,170,0.2)':'rgba(255,255,255,0.04)',border:`1.5px solid ${interval===v?'#82E0AA':'rgba(255,255,255,0.12)'}`,borderRadius:10,cursor:'pointer',color:interval===v?'#82E0AA':'rgba(255,255,255,0.5)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s'}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button onClick={startWithInterval}
+        style={{width:'100%',padding:'1rem',background:'rgba(130,224,170,0.15)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+        GÉNÉRER LA MÉLODIE →
+      </button>
     </div>
-    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
-      <div style={{padding:'.75rem',background:'#faf9f4',borderRadius:6,border:'0.5px solid rgba(240,235,224,0.15)'}}><MusicStaff notes={melody.notes} currentIdx={noteIdx} feedback={feedback}/></div>
-      <div style={{textAlign:'center',padding:'.75rem'}}>
-        <p style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.75rem'}}>QUELLE EST CETTE NOTE ?</p>
-        {feedback?(<div style={{fontSize:17,fontWeight:'bold',fontFamily:'Georgia,serif',color:feedback==='correct'?'#22c55e':'#ef4444',animation:'fadeIn 0.2s ease',marginBottom:'.65rem'}}>{feedback==='correct'?`✓ ${correctSolfege} !`:`✗ C'était ${correctSolfege}`}</div>):(<div style={{marginBottom:'.65rem',height:28}}/>)}
-        <button onClick={()=>currentNote&&playNote(NOTE_SEMI[currentNote]??0,0,1.5)} style={{background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.15)',color:'rgba(240,235,224,0.6)',padding:'.4rem .9rem',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em'}}>🔊 ÉCOUTER LA NOTE</button>
+  );
+
+  // ── Done screen ─────────────────────────────────────────────────────────────
+  if (screen==='done') {
+    const pct=score.total>0?Math.round((score.correct/score.total)*100):0;
+    const mc=pct>=90?'#82E0AA':pct>=70?'#85C1E9':pct>=50?'#F7DC6F':'#F1948A';
+    return(
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS — {selMelody?.title}</div>
+          <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
+          <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
+          <div style={{fontSize:13,opacity:.5,fontFamily:'Georgia,serif',marginTop:8}}>
+            {pct>=90?'Excellent ! Tu lis la musique avec aisance 🎉':pct>=70?'Très bien !':pct>=50?'Continue à pratiquer !':'Révise tes notes de solfège !'}
+          </div>
+        </div>
+        {!selMelody?.fixed && (
+          <button onClick={()=>{regenMelody();setScreen('play');}}
+            style={{padding:'.9rem',background:'rgba(130,224,170,0.15)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+            🎲 NOUVELLE MÉLODIE ALÉATOIRE
+          </button>
+        )}
+        <button onClick={()=>{setNoteIdx(0);setFeedback(null);setScore({correct:0,total:0});setScreen('play');}}
+          style={{padding:'.9rem',background:'rgba(133,193,233,0.12)',border:'1.5px solid #85C1E9',color:'#85C1E9',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>
+          🔄 RECOMMENCER
+        </button>
+        <button onClick={()=>setScreen('select')}
+          style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>
+          CHOISIR UNE AUTRE MÉLODIE
+        </button>
       </div>
-      <div><div style={{fontSize:10,letterSpacing:'.15em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>RÉPONSE</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:7}}>
-          {SOLFEGES.map(sol=>{
-            const c=SOL_COLORS[sol],isOk=feedback&&sol===correctSolfege,isW=feedback==='wrong'&&sol!==correctSolfege;
-            return(<button key={sol} onClick={()=>handleAnswer(sol)} disabled={!!feedback} style={{background:isOk?`${c}25`:`${c}10`,border:`0.5px solid ${isOk?c:isW?'rgba(240,235,224,0.06)':c+'45'}`,color:isOk?c:isW?'rgba(240,235,224,0.18)':c,padding:'.8rem .25rem',borderRadius:3,cursor:feedback?'default':'pointer',fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',transition:'all 0.2s',transform:isOk?'scale(1.05)':'scale(1)'}}>{sol}</button>);
-          })}
+    );
+  }
+
+  // ── Play screen ─────────────────────────────────────────────────────────────
+  const progressPct = notes.length>0 ? (noteIdx/notes.length)*100 : 0;
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Progress bar */}
+      <div style={{padding:'.7rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <button onClick={()=>setScreen('select')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11}}>← Choisir</button>
+        <div style={{flex:1,margin:'0 1rem'}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+            <span style={{fontSize:9,fontFamily:'monospace',opacity:.4}}>{noteIdx+1}/{notes.length}</span>
+            <span style={{fontSize:9,fontFamily:'monospace',color:'#82E0AA'}}>{score.correct}/{score.total} ✓</span>
+          </div>
+          <div style={{height:3,background:'rgba(255,255,255,0.08)',borderRadius:2}}>
+            <div style={{height:'100%',width:`${progressPct}%`,background:'#85C1E9',borderRadius:2,transition:'width 0.3s ease'}}/>
+          </div>
+        </div>
+        {!selMelody?.fixed && (
+          <button onClick={()=>{regenMelody();}} title="Nouvelle mélodie"
+            style={{background:'rgba(130,224,170,0.1)',border:'1px solid rgba(130,224,170,0.3)',color:'#82E0AA',padding:'3px 8px',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace'}}>
+            🎲
+          </button>
+        )}
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Staff */}
+        <div style={{padding:'.75rem',background:'#faf9f4',borderRadius:12,border:'0.5px solid rgba(255,255,255,0.15)'}}>
+          <MusicStaff notes={notes} currentIdx={noteIdx} feedback={feedback}/>
+        </div>
+
+        {/* Feedback */}
+        <div style={{textAlign:'center',padding:'.75rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':feedback==='wrong'?'rgba(241,148,138,0.1)':'rgba(255,255,255,0.03)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.35)':feedback==='wrong'?'rgba(241,148,138,0.35)':'rgba(255,255,255,0.08)'}`,borderRadius:10,transition:'all 0.2s',minHeight:44,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          {feedback==='correct'&&<span style={{color:'#82E0AA',fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif'}}>✓ {correctSolfege} !</span>}
+          {feedback==='wrong'  &&<span style={{color:'#F1948A',fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif'}}>✗ C'était {correctSolfege}</span>}
+          {!feedback&&<span style={{fontSize:11,opacity:.45,fontFamily:'monospace'}}>NOTE {noteIdx+1}/{notes.length} — QUELLE EST CETTE NOTE ?</span>}
+        </div>
+
+        {/* Answer buttons */}
+        <div>
+          <div style={{fontSize:10,opacity:.35,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>RÉPONSE</div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:7}}>
+            {SOLFEGES.map(sol=>{
+              const c=SOL_COLORS[sol];
+              const isOk=feedback&&sol===correctSolfege;
+              const isW =feedback==='wrong'&&sol!==correctSolfege;
+              return(
+                <button key={sol} onClick={()=>handleAnswer(sol)} disabled={!!feedback}
+                  style={{background:isOk?`${c}25`:`${c}10`,border:`0.5px solid ${isOk?c:isW?'rgba(255,255,255,0.06)':c+'45'}`,color:isOk?c:isW?'rgba(255,255,255,0.18)':c,padding:'.8rem .25rem',borderRadius:10,cursor:feedback?'default':'pointer',fontSize:16,fontWeight:'bold',fontFamily:'Georgia,serif',transition:'all 0.2s',transform:isOk?'scale(1.06)':'scale(1)'}}>
+                  {sol}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
-  </div>);
+  );
 }
-
 function ExercicesPage() {
   const [sub, setSub] = useState(null);
 
   const MODS = [
-    {id:'solfege',      icon:'🎼', title:'Solfège',              subtitle:'NOTES · GAMMES · SYMBOLES',   color:'#F7DC6F', ok:true},
-    {id:'lecture',      icon:'📖', title:'Lecture de partition', subtitle:'IDENTIFIER LES NOTES',         color:'#85C1E9', ok:true},
-    {id:'flashcards',   icon:'🎯', title:"Dictée d'accords",     subtitle:'JOUER LES ACCORDS AU PIANO',   color:'#F1948A', ok:true},
-    {id:'cycle',        icon:'🔄', title:'Cycle des quintes',    subtitle:'12 TONALITÉS',                 color:'#F7DC6F', ok:true},
-    {id:'transposition',icon:'↔', title:'Transposition',        subtitle:'CHANGER DE TONALITÉ',           color:'#85C1E9', ok:true},
-    {id:'impro',        icon:'✨', title:'Improvisation guidée', subtitle:'GAMME · STYLE · PROGRESSION',  color:'#A78BFA', ok:true},
+    {id:'flashcards',   icon:'🎯', title:"Dictée d'accords",     subtitle:'JOUER LES ACCORDS AU PIANO',   color:'#F1948A'},
+    {id:'cycle',        icon:'🔄', title:'Cycle des quintes',    subtitle:'12 TONALITÉS',                 color:'#F7DC6F'},
+    {id:'transposition',icon:'↔', title:'Transposition',        subtitle:'CHANGER DE TONALITÉ',           color:'#85C1E9'},
+    {id:'impro',        icon:'✨', title:'Improvisation guidée', subtitle:'GAMME · STYLE · PROGRESSION',  color:'#A78BFA'},
   ];
 
   if (sub) {
@@ -3041,8 +3829,6 @@ function ExercicesPage() {
           <span style={{fontSize:11,fontFamily:'monospace',color:info?.color,letterSpacing:'.08em'}}>{info?.title.toUpperCase()}</span>
         </div>
         <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-          {sub==='solfege'      && <SolfegePage/>}
-          {sub==='lecture'      && <LectureExercice/>}
           {sub==='flashcards'   && <DicteeAccords/>}
           {sub==='cycle'        && <CycleQuintesExercice/>}
           {sub==='transposition'&& <TranspositionExercice/>}
@@ -3093,7 +3879,8 @@ function DicteeAccords() {
   const [running,   setRunning]   = useState(false); // timer ticking
   const [paused,    setPaused]    = useState(false);
   const [pulse,     setPulse]     = useState(false); // metronome visual
-  const [history,   setHistory]   = useState([]); // {root,type,result:'ok'|'hard'}
+  const [history,   setHistory]   = useState([]); // kept minimal for result screen
+  const [completed, setCompleted] = useState(0);
 
   const timerRef    = useRef(null);
   const pulseRef    = useRef(null);
@@ -3126,6 +3913,7 @@ function DicteeAccords() {
       setTimeLeft(prev => {
         if (prev <= 1) {
           // auto-advance
+          setCompleted(c => c + 1);
           setIdx(i => {
             const next = i + 1;
             if (!loopMode && next >= cards.length) {
@@ -3161,7 +3949,7 @@ function DicteeAccords() {
   function start() {
     if(selected.size===0) return;
     const c = buildCards(Array.from(selected), count);
-    setCards(c); setIdx(0); setHistory([]); setRunning(true); setPaused(false);
+    setCards(c); setIdx(0); setHistory([]); setCompleted(0); setRunning(true); setPaused(false);
     setScreen('play');
     // Play first chord
     setTimeout(() => {
@@ -3186,14 +3974,12 @@ function DicteeAccords() {
     }
   }
 
-  function markAndNext(result) {
-    const card = cards[idx];
-    if(card) setHistory(h => [...h, { ...card, result }]);
+  function advanceCard() {
     const next = idx + 1;
+    setCompleted(c => c + 1);
     if (!loopMode && next >= cards.length) { stopAll(); setScreen('result'); return; }
     const nextIdx = loopMode ? next % cards.length : next;
     setIdx(nextIdx);
-    // Play next chord
     setTimeout(() => {
       const nc = cards[nextIdx];
       if(nc) {
@@ -3284,29 +4070,14 @@ function DicteeAccords() {
 
   // ── Result ──────────────────────────────────────────────────────────────────
   if (screen==='result') {
-    const easy = history.filter(h=>h.result==='ok').length;
-    const hard = history.filter(h=>h.result==='hard').length;
-    const pct  = history.length>0?Math.round((easy/history.length)*100):0;
-    const mc   = pct>=70?'#82E0AA':pct>=40?'#F7DC6F':'#F1948A';
-    const hardCards = history.filter(h=>h.result==='hard');
     return(
       <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
-        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+        <div style={{textAlign:'center',padding:'2rem',background:'rgba(130,224,170,0.08)',border:'1px solid rgba(130,224,170,0.25)',borderRadius:14}}>
           <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>SESSION TERMINÉE</div>
-          <div style={{display:'flex',gap:16,justifyContent:'center',marginBottom:'1rem'}}>
-            <div style={{textAlign:'center'}}><div style={{fontSize:40,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif'}}>{easy}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>FACILE</div></div>
-            <div style={{textAlign:'center'}}><div style={{fontSize:40,fontWeight:'bold',color:'#F1948A',fontFamily:'Georgia,serif'}}>{hard}</div><div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>DIFFICILE</div></div>
-          </div>
-          <div style={{fontSize:14,opacity:.55,fontFamily:'Georgia,serif'}}>{pct>=70?'Excellente maîtrise !':pct>=40?'Continue à pratiquer ces accords':'Reviens demain — la régularité paie !'}</div>
+          <div style={{fontSize:56,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif',lineHeight:1,marginBottom:8}}>{completed}</div>
+          <div style={{fontSize:13,opacity:.55,fontFamily:'monospace',marginBottom:8}}>accord{completed>1?'s':''} joué{completed>1?'s':''}</div>
+          <div style={{fontSize:14,opacity:.6,fontFamily:'Georgia,serif'}}>Régularité + répétition = maîtrise 💪</div>
         </div>
-        {hardCards.length>0&&(
-          <div style={{padding:'1rem',background:'rgba(241,148,138,0.07)',border:'1px solid rgba(241,148,138,0.2)',borderRadius:12}}>
-            <div style={{fontSize:10,color:'#F1948A',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>À RETRAVAILLER</div>
-            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-              {hardCards.map((c,i)=><span key={i} style={{fontSize:12,fontFamily:'monospace',color:NOTE_COLORS[c.root]||'#F1948A',padding:'3px 10px',background:`${NOTE_COLORS[c.root]||'#F1948A'}15`,borderRadius:8}}>{c.name}</span>)}
-            </div>
-          </div>
-        )}
         <button onClick={start} style={{padding:'.9rem',background:'rgba(241,148,138,0.15)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em',fontWeight:'bold'}}>🔄 NOUVELLE SESSION</button>
         <button onClick={()=>setScreen('config')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.12em'}}>⚙ RECONFIGURER</button>
       </div>
@@ -3370,18 +4141,14 @@ function DicteeAccords() {
         </div>
 
         {/* Controls */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
           <button onClick={togglePause}
-            style={{padding:'.8rem .25rem',background:paused?'rgba(247,220,111,0.15)':'rgba(255,255,255,0.05)',border:`1.5px solid ${paused?'#F7DC6F':'rgba(255,255,255,0.15)'}`,color:paused?'#F7DC6F':'rgba(255,255,255,0.6)',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            style={{padding:'.85rem .25rem',background:paused?'rgba(247,220,111,0.15)':'rgba(255,255,255,0.05)',border:`1.5px solid ${paused?'#F7DC6F':'rgba(255,255,255,0.15)'}`,color:paused?'#F7DC6F':'rgba(255,255,255,0.6)',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
             {paused?'▶ REPRENDRE':'⏸ PAUSE'}
           </button>
-          <button onClick={()=>markAndNext('hard')}
-            style={{padding:'.8rem .25rem',background:'rgba(241,148,138,0.12)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
-            😓 DUR
-          </button>
-          <button onClick={()=>markAndNext('ok')}
-            style={{padding:'.8rem .25rem',background:'rgba(130,224,170,0.12)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
-            ✓ OK
+          <button onClick={advanceCard}
+            style={{padding:'.85rem .25rem',background:'rgba(133,193,233,0.12)',border:'1.5px solid #85C1E9',color:'#85C1E9',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            PASSER →
           </button>
         </div>
       </div>
@@ -4149,6 +4916,9 @@ function CoinHarmoniePage() {
 }
 
 function TheoriePage() {
+  const [section, setSection] = useState('main'); // main | exercices | exSub
+  const [exSub,   setExSub]   = useState(null);
+
   const CATEGORIES = [
     { title:'Harmonie classique', color:'#C39BD3', icon:'🎼', items:[
       {name:'Gammes et modes',          desc:'Majeur, mineur, modes grecs'},
@@ -4178,6 +4948,59 @@ function TheoriePage() {
     ]},
   ];
 
+  // Sub-section exercices
+  if (section === 'exercices') {
+    if (exSub) {
+      return(
+        <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',background:'rgba(13,11,30,0.8)',flexShrink:0}}>
+            <button onClick={()=>setExSub(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,padding:'4px 8px',borderRadius:6,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}>← EXERCICES THÉORIQUES</button>
+            <span style={{opacity:.2}}>|</span>
+            <span style={{fontSize:11,fontFamily:'monospace',color:exSub==='solfege'?'#F7DC6F':'#85C1E9',letterSpacing:'.06em'}}>{exSub==='solfege'?'SYMBOLES MUSICAUX':'LECTURE DE PARTITION'}</span>
+          </div>
+          <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+            {exSub==='solfege'  && <SymbolesMusique/>}
+            {exSub==='lecture'  && <LectureExercice/>}
+          </div>
+        </div>
+      );
+    }
+    return(
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:'1.5rem'}}>
+          <button onClick={()=>setSection('main')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+          <div>
+            <h3 style={{fontSize:18,fontWeight:'bold',margin:0}}>Exercices Théoriques</h3>
+            <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>SYMBOLES · LECTURE DE PARTITION</p>
+          </div>
+        </div>
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {[
+            {id:'solfege', icon:'🎵', title:'Symboles Musicaux', sub:'Clés · Silences · Valeurs · Chiffrage · Nuances', color:'#F7DC6F',
+             desc:'Apprends à reconnaître tous les symboles d\'une partition. 21 symboles classés, exercice d\'identification.'},
+            {id:'lecture', icon:'📖', title:'Lecture de Partition', sub:'Identifier les notes en solfège', color:'#85C1E9',
+             desc:'Lis des mélodies sur portée et identifie chaque note. Mélodies fixes et générées aléatoirement.'},
+          ].map(m=>(
+            <button key={m.id} onClick={()=>setExSub(m.id)}
+              style={{background:`${m.color}08`,border:`1.5px solid ${m.color}35`,borderRadius:14,padding:'1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}
+              onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 8px 20px ${m.color}25`;}}
+              onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}35`;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
+              <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+                <span style={{fontSize:28}}>{m.icon}</span>
+                <div>
+                  <div style={{fontSize:15,fontWeight:'bold',color:m.color,fontFamily:'Georgia,serif',marginBottom:4}}>{m.title}</div>
+                  <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.04em',marginBottom:6}}>{m.sub}</div>
+                  <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.55,fontFamily:'Georgia,serif'}}>{m.desc}</p>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── MAIN ─────────────────────────────────────────────────────────────────────
   return (
     <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
       <div style={{marginBottom:'1.5rem'}}>
@@ -4185,26 +5008,41 @@ function TheoriePage() {
         <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>COMPRENDRE LA MUSIQUE EN PROFONDEUR</p>
       </div>
 
-      <div style={{padding:'1rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.2)',borderRadius:4,marginBottom:'1.5rem'}}>
-        <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.35rem'}}>EN COURS DE RÉDACTION</div>
-        <p style={{fontSize:12,opacity:.55,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>Le contenu théorique sera ajouté progressivement. Chaque chapitre sera accompagné d'exemples sonores et visuels interactifs.</p>
+      {/* Exercices théoriques — bouton mis en avant */}
+      <button onClick={()=>setSection('exercices')}
+        style={{width:'100%',marginBottom:'1.5rem',background:'linear-gradient(135deg,rgba(247,220,111,0.15),rgba(133,193,233,0.1))',border:'1.5px solid rgba(247,220,111,0.4)',borderRadius:14,padding:'1rem 1.25rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',display:'flex',alignItems:'center',justifyContent:'space-between'}}
+        onMouseEnter={e=>{e.currentTarget.style.background='linear-gradient(135deg,rgba(247,220,111,0.22),rgba(133,193,233,0.16))';e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 8px 24px rgba(247,220,111,0.2)';}}
+        onMouseLeave={e=>{e.currentTarget.style.background='linear-gradient(135deg,rgba(247,220,111,0.15),rgba(133,193,233,0.1))';e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
+        <div style={{display:'flex',gap:12,alignItems:'center'}}>
+          <span style={{fontSize:26}}>🎓</span>
+          <div>
+            <div style={{fontSize:15,fontWeight:'bold',color:'#F7DC6F',fontFamily:'Georgia,serif',marginBottom:2}}>Exercices Théoriques</div>
+            <div style={{fontSize:10,opacity:.55,fontFamily:'monospace',letterSpacing:'.04em'}}>SYMBOLES MUSICAUX · LECTURE DE PARTITION</div>
+          </div>
+        </div>
+        <span style={{fontSize:16,color:'rgba(247,220,111,0.6)'}}>→</span>
+      </button>
+
+      <div style={{padding:'.85rem 1rem',background:'rgba(247,220,111,0.05)',border:'0.5px solid rgba(247,220,111,0.18)',borderRadius:10,marginBottom:'1.5rem'}}>
+        <div style={{fontSize:10,color:'#F7DC6F',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.3rem'}}>EN COURS DE RÉDACTION</div>
+        <p style={{fontSize:12,opacity:.5,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>Les chapitres de cours seront ajoutés progressivement, avec exemples sonores et visuels interactifs.</p>
       </div>
 
-      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
         {CATEGORIES.map((cat,ci)=>(
-          <div key={ci} style={{background:'rgba(240,235,224,0.025)',border:`0.5px solid ${cat.color}30`,borderRadius:4,overflow:'hidden'}}>
+          <div key={ci} style={{background:'rgba(255,255,255,0.025)',border:`0.5px solid ${cat.color}25`,borderRadius:12,overflow:'hidden'}}>
             <div style={{padding:'.85rem 1rem',background:`${cat.color}08`,display:'flex',alignItems:'center',gap:10}}>
               <span style={{fontSize:20}}>{cat.icon}</span>
               <span style={{fontSize:14,fontWeight:'bold',color:cat.color,fontFamily:'Georgia,serif'}}>{cat.title}</span>
             </div>
             <div style={{display:'flex',flexDirection:'column'}}>
               {cat.items.map((item,ii)=>(
-                <div key={ii} style={{padding:'.7rem 1rem',borderTop:'0.5px solid rgba(240,235,224,0.06)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <div key={ii} style={{padding:'.7rem 1rem',borderTop:'0.5px solid rgba(255,255,255,0.05)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                   <div>
-                    <div style={{fontSize:13,fontFamily:'Georgia,serif',color:'rgba(240,235,224,0.65)',marginBottom:2}}>{item.name}</div>
-                    <div style={{fontSize:10,opacity:.35,fontFamily:'monospace'}}>{item.desc}</div>
+                    <div style={{fontSize:13,fontFamily:'Georgia,serif',color:'rgba(255,255,255,0.65)',marginBottom:2}}>{item.name}</div>
+                    <div style={{fontSize:10,opacity:.3,fontFamily:'monospace'}}>{item.desc}</div>
                   </div>
-                  <span style={{fontSize:8,fontFamily:'monospace',color:'rgba(240,235,224,0.25)',border:'0.5px solid rgba(240,235,224,0.1)',padding:'2px 5px',borderRadius:2,flexShrink:0,marginLeft:8}}>BIENTÔT</span>
+                  <span style={{fontSize:8,fontFamily:'monospace',color:'rgba(255,255,255,0.2)',border:'0.5px solid rgba(255,255,255,0.08)',padding:'2px 5px',borderRadius:4,flexShrink:0,marginLeft:8}}>BIENTÔT</span>
                 </div>
               ))}
             </div>
@@ -4218,7 +5056,7 @@ function TheoriePage() {
 const APPRENTISSAGE_SECTIONS = [
   {id:'accords',   icon:'♩',  title:'Répertoire', subtitle:'ACCORDS · PARTITIONS · GRILLES · IMPRO', color:'#C39BD3'},
   {id:'oreille',   icon:'👂', title:'Oreille',     subtitle:'INTERVALLES · ACCORDS · MÉLODIE',        color:'#85C1E9'},
-  {id:'exercices', icon:'✎',  title:'Technique',   subtitle:'SOLFÈGE · LECTURE · RYTHME',              color:'#82E0AA'},
+  {id:'exercices', icon:'✎',  title:'Technique',   subtitle:'DICTÉE · CYCLE · TRANSPOSITION · IMPRO', color:'#82E0AA'},
   {id:'theorie',   icon:'📖', title:'Théorie',      subtitle:'HARMONIE · JAZZ · COMPOSITION',           color:'#F7DC6F'},
   {id:'harmonie',  icon:'🏛',  title:'Harmonie',    subtitle:'CONSTRUIRE · ANALYSER · COMPRENDRE',      color:'#AED6F1'},
 ];
@@ -4566,12 +5404,23 @@ export default function ChordApp(){
   const [pageKey,setPageKey]=useState(0);
   const theme = THEMES[themeId] || THEMES.cosmos;
 
-  const cycleTheme = () => {
-    const idx = THEME_IDS.indexOf(themeId);
-    const next = THEME_IDS[(idx+1)%THEME_IDS.length];
-    setThemeId(next);
-    try{ localStorage.setItem('cs_theme',next); }catch{}
-  };
+  // Mascotte
+  const [showMascotte, setShowMascotte] = useState(false);
+  const [mascoтteType, setMascoтteType] = useState('idle');
+  const mascotteTimerRef = useRef(null);
+
+  // Idle : affiche la mascotte après 45s sur la page compétences sans interaction
+  useEffect(() => {
+    clearTimeout(mascotteTimerRef.current);
+    setShowMascotte(false);
+    if (page === 'competences') {
+      mascotteTimerRef.current = setTimeout(() => {
+        setMascoтteType('idle');
+        setShowMascotte(true);
+      }, 45000);
+    }
+    return () => clearTimeout(mascotteTimerRef.current);
+  }, [page, pageKey]);
 
   // Register callbacks
   _updater=(fn)=>{
@@ -4721,5 +5570,17 @@ export default function ChordApp(){
 
     {showTip&&<TipPopup tip={TIPS[tipIndex]} onClose={()=>setShowTip(false)} onNext={()=>setTipIndex(i=>(i+1)%TIPS.length)}/>}
     {showDefis&&<DefisPanel stats={stats} onClose={()=>setShowDefis(false)}/>}
+    {showMascotte&&(
+      <MascoттePopup
+        type={mascoтteType}
+        onClose={()=>setShowMascotte(false)}
+        onAction={()=>{
+          setShowMascotte(false);
+          setPage('apprentissage');
+          setPageKey(k=>k+1);
+        }}
+        actionLabel="Faire un exercice 🎵"
+      />
+    )}
   </div>);
 }
