@@ -57,7 +57,42 @@ const CATEGORY_TIPS = {
 };
 
 // ── Données du Journal de pratique ───────────────────────────────────────────
-const JOURNAL_KEY = 'cs_journal_v1';
+const JOURNAL_KEY = 'cs_journal_v2';
+const CHAR_KEY    = 'cs_character_v1';
+const XP_PER_EXERCISE = 10;
+const XP_PER_MIN      = 2;
+const XP_LEVELS = [0,100,250,500,850,1300,2000,3000,4500,6500,10000]; // XP needed to reach level N
+
+function getLevel(xp) {
+  for (let i=XP_LEVELS.length-1; i>=0; i--) {
+    if (xp >= XP_LEVELS[i]) return i;
+  }
+  return 0;
+}
+function xpToNextLevel(xp) {
+  const lv = getLevel(xp);
+  if (lv >= XP_LEVELS.length-1) return { current:xp, next:xp, pct:100, lv };
+  const base = XP_LEVELS[lv], next = XP_LEVELS[lv+1];
+  return { current:xp-base, next:next-base, pct:Math.round(((xp-base)/(next-base))*100), lv };
+}
+const LEVEL_TITLES = ['Débutant','Initié','Apprenti','Musicien','Interprète',
+  'Compositeur','Virtuose','Maestro','Légende','Grand Maître','Prodige'];
+
+// Character storage
+const DEF_CHAR = {
+  gender:'M',    // M | F
+  skinTone:0,    // 0-3
+  hairColor:0,   // 0-4
+  outfit:0,      // 0 = default, others unlocked
+  accessories:[],// array of unlocked/equipped item ids
+  totalXp:0,
+  // 10 000h tracker
+  practicedHours: 0,
+  dailyHoursGoal: 1,
+  sessions: [],  // {date, mins, comment, ts}
+};
+function loadChar(){try{return{...DEF_CHAR,...JSON.parse(localStorage.getItem(CHAR_KEY)||'{}')};}catch{return{...DEF_CHAR};}}
+function saveChar(c){try{localStorage.setItem(CHAR_KEY,JSON.stringify(c));}catch{}}
 function loadJournal() {
   try { return JSON.parse(localStorage.getItem(JOURNAL_KEY)||'{}'); }
   catch { return {}; }
@@ -74,70 +109,75 @@ function loadGoals() {
 }
 function saveGoals(g) { try { localStorage.setItem(GOAL_KEY, JSON.stringify(g)); } catch {} }
 
-// ── Section card gradients ────────────────────────────────────────────────────
+// ── Section card gradients — Palette ambre ───────────────────────────────────
 const SECTION_GRADIENTS = {
-  accords:   'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
-  oreille:   'linear-gradient(135deg, #06B6D4 0%, #0284C7 100%)',
-  exercices: 'linear-gradient(135deg, #10B981 0%, #047857 100%)',
-  theorie:   'linear-gradient(135deg, #F59E0B 0%, #D97706 100%)',
-  harmonie:  'linear-gradient(135deg, #F43F5E 0%, #BE185D 100%)',
+  accords:   'linear-gradient(145deg, #2A1F0E 0%, #1A1200 100%)',
+  oreille:   'linear-gradient(145deg, #0E1A1A 0%, #071212 100%)',
+  exercices: 'linear-gradient(145deg, #0E1A10 0%, #071208 100%)',
+  theorie:   'linear-gradient(145deg, #1A160A 0%, #120F04 100%)',
+  harmonie:  'linear-gradient(145deg, #1A0E0E 0%, #120606 100%)',
 };
 
-// ── Thèmes visuels ────────────────────────────────────────────────────────────
+// ── Palette & Thèmes ─────────────────────────────────────────────────────────
+// Direction artistique : fond sombre + accent ambre chaud (#E8A857)
+// Sobre, lisible, premium — cohérent du premier au dernier écran.
+const ACCENT    = '#E8A857';  // Or ambre — couleur signature
+const ACCENT2   = '#C8864A';  // Ambre foncé
+const ACCENT_SOFT='rgba(232,168,87,0.12)';
+
 const THEMES = {
-  cosmos: {
-    id:'cosmos', label:'Cosmos', icon:'🌌',
-    bg:'#0D0B1E',
-    bgGrad:'radial-gradient(ellipse at 20% 20%, rgba(139,92,246,0.18) 0%, transparent 50%), radial-gradient(ellipse at 80% 80%, rgba(59,130,246,0.15) 0%, transparent 50%), radial-gradient(ellipse at 50% 50%, rgba(236,72,153,0.08) 0%, transparent 70%), #0D0B1E',
-    headerBg:'rgba(13,11,30,0.88)',
-    navBg:'rgba(13,11,30,0.96)',
-    surface:'rgba(139,92,246,0.08)',
-    surfaceHover:'rgba(139,92,246,0.14)',
-    border:'rgba(139,92,246,0.25)',
-    borderMuted:'rgba(139,92,246,0.12)',
-    text:'#F5F3FF',
-    textMuted:'rgba(245,243,255,0.5)',
-    textFaint:'rgba(245,243,255,0.25)',
-    accent:'#A78BFA',
-    logoGrad:'linear-gradient(90deg, #A78BFA, #60A5FA, #F472B6)',
-    navActive:'rgba(139,92,246,0.2)',
-    css:`input,textarea{background:rgba(139,92,246,0.1)!important;border-color:rgba(139,92,246,0.25)!important;color:#F5F3FF!important;}input::placeholder,textarea::placeholder{color:rgba(245,243,255,0.35)!important;}`,
+  obsidian: {
+    id:'obsidian', label:'Obsidian', icon:'◈',
+    bgGrad:'#0D0D12',
+    headerBg:'rgba(13,13,18,0.95)',
+    navBg:'rgba(13,13,18,0.98)',
+    surface:'rgba(255,255,255,0.04)',
+    surfaceHover:'rgba(232,168,87,0.08)',
+    border:'rgba(255,255,255,0.08)',
+    borderMuted:'rgba(255,255,255,0.05)',
+    text:'#F0EBE3',
+    textMuted:'rgba(240,235,227,0.5)',
+    textFaint:'rgba(240,235,227,0.25)',
+    accent:ACCENT,
+    accent2:ACCENT2,
+    logoGrad:'linear-gradient(90deg, #E8A857, #F0C080)',
+    navActive:'rgba(232,168,87,0.12)',
   },
-  neon: {
-    id:'neon', label:'Neon', icon:'⚡',
-    bg:'#080C10',
-    bgGrad:'radial-gradient(ellipse at 15% 30%, rgba(0,255,128,0.12) 0%, transparent 45%), radial-gradient(ellipse at 85% 70%, rgba(6,182,212,0.12) 0%, transparent 45%), radial-gradient(ellipse at 50% 90%, rgba(132,204,22,0.08) 0%, transparent 50%), #080C10',
-    headerBg:'rgba(8,12,16,0.9)',
-    navBg:'rgba(8,12,16,0.97)',
-    surface:'rgba(0,255,128,0.07)',
-    surfaceHover:'rgba(0,255,128,0.13)',
-    border:'rgba(0,255,128,0.22)',
-    borderMuted:'rgba(0,255,128,0.1)',
-    text:'#ECFDF5',
-    textMuted:'rgba(236,253,245,0.5)',
-    textFaint:'rgba(236,253,245,0.25)',
-    accent:'#4ADE80',
-    logoGrad:'linear-gradient(90deg, #4ADE80, #06B6D4, #A3E635)',
-    navActive:'rgba(74,222,128,0.18)',
-    css:`input,textarea{background:rgba(0,255,128,0.07)!important;border-color:rgba(0,255,128,0.22)!important;color:#ECFDF5!important;}`,
+  studio: {
+    id:'studio', label:'Studio', icon:'○',
+    bg:'#F7F4EF',
+    bgGrad:'#F7F4EF',
+    headerBg:'rgba(247,244,239,0.96)',
+    navBg:'rgba(247,244,239,0.99)',
+    surface:'rgba(0,0,0,0.04)',
+    surfaceHover:'rgba(232,168,87,0.1)',
+    border:'rgba(0,0,0,0.1)',
+    borderMuted:'rgba(0,0,0,0.06)',
+    text:'#1A1612',
+    textMuted:'rgba(26,22,18,0.5)',
+    textFaint:'rgba(26,22,18,0.25)',
+    accent:ACCENT2,
+    accent2:'#A0622A',
+    logoGrad:'linear-gradient(90deg, #C8864A, #E8A857)',
+    navActive:'rgba(200,134,74,0.1)',
   },
   jazz: {
-    id:'jazz', label:'Jazz', icon:'🎷',
-    bg:'#110800',
-    bgGrad:'radial-gradient(ellipse at 25% 25%, rgba(251,146,60,0.18) 0%, transparent 50%), radial-gradient(ellipse at 75% 75%, rgba(239,68,68,0.14) 0%, transparent 50%), radial-gradient(ellipse at 60% 10%, rgba(245,158,11,0.1) 0%, transparent 40%), #110800',
-    headerBg:'rgba(17,8,0,0.9)',
-    navBg:'rgba(17,8,0,0.97)',
-    surface:'rgba(251,146,60,0.08)',
-    surfaceHover:'rgba(251,146,60,0.14)',
-    border:'rgba(251,146,60,0.25)',
-    borderMuted:'rgba(251,146,60,0.1)',
-    text:'#FFF7ED',
-    textMuted:'rgba(255,247,237,0.5)',
-    textFaint:'rgba(255,247,237,0.25)',
-    accent:'#FB923C',
-    logoGrad:'linear-gradient(90deg, #FB923C, #F59E0B, #EF4444)',
-    navActive:'rgba(251,146,60,0.2)',
-    css:`input,textarea{background:rgba(251,146,60,0.08)!important;border-color:rgba(251,146,60,0.25)!important;color:#FFF7ED!important;}`,
+    id:'jazz', label:'Jazz', icon:'♪',
+    bg:'#0E0A06',
+    bgGrad:'radial-gradient(ellipse at 30% 20%, rgba(200,134,74,0.14) 0%, transparent 55%), #0E0A06',
+    headerBg:'rgba(14,10,6,0.95)',
+    navBg:'rgba(14,10,6,0.98)',
+    surface:'rgba(255,255,255,0.04)',
+    surfaceHover:'rgba(200,134,74,0.1)',
+    border:'rgba(200,134,74,0.18)',
+    borderMuted:'rgba(200,134,74,0.08)',
+    text:'#F5EDE0',
+    textMuted:'rgba(245,237,224,0.5)',
+    textFaint:'rgba(245,237,224,0.25)',
+    accent:'#D4924E',
+    accent2:'#B87833',
+    logoGrad:'linear-gradient(90deg, #D4924E, #E8C080)',
+    navActive:'rgba(212,146,78,0.15)',
   },
 };
 const THEME_IDS = Object.keys(THEMES);
@@ -216,7 +256,7 @@ function checkAndComplete(stats,today,dailyChallenges) {
 // ── Stats ─────────────────────────────────────────────────────────────────────
 const STATS_KEY='cs_stats_v2';
 const WEEKLY_GOALS_KEY='cs_weekly_goals_v1';
-const DEF_STATS={totalExercises:0,totalSeconds:0,sessionsCount:0,keys:0,todayDate:'',todayExercises:0,todayLibViews:0,todaySections:0,lastPerfect:'',lastIntervalDay:'',lastChordEarDay:'',completedChallenges:[],streak:0,lastActivityDate:'',weeklyGoals:{oreille:0,technique:0,theorie:0,harmonie:0}};
+const DEF_STATS={totalExercises:0,totalSeconds:0,sessionsCount:0,keys:0,todayDate:'',todayExercises:0,todayLibViews:0,todaySections:0,lastPerfect:'',lastIntervalDay:'',lastChordEarDay:'',completedChallenges:[],streak:0,lastActivityDate:'',weeklyGoals:{oreille:0,technique:0,theorie:0,harmonie:0},totalXp:0};
 const loadStats=()=>{try{return{...DEF_STATS,...JSON.parse(localStorage.getItem(STATS_KEY)||'{}')};}catch{return{...DEF_STATS};}};
 const saveStats=s=>{try{localStorage.setItem(STATS_KEY,JSON.stringify(s));}catch{}};
 function formatTime(s){if(!s||s<60)return'0 min';const m=Math.floor(s/60);if(m<60)return`${m} min`;const h=Math.floor(m/60),r=m%60;return r>0?`${h}h ${r}min`:`${h}h`;}
@@ -259,6 +299,7 @@ function notifyExerciseDone(count,type,perfect){
       sessionsCount:(s.sessionsCount||0)+1,
       todayExercises:(s.todayExercises||0)+count,
       lastActivityDate:today,
+      totalXp:(s.totalXp||0) + count*XP_PER_EXERCISE,
       // Update weekly goals by category
       weeklyGoals:{
         ...(s.weeklyGoals||{}),
@@ -692,8 +733,8 @@ function SpeedFlashcards() {
                 return (
                   <button key={root} onClick={()=>handleRootAnswer(root)}
                     style={{background:`${c}`,border:`0.5px solid ${c}`,color:c,padding:'.65rem .25rem',borderRadius:3,cursor:'pointer',fontSize:14,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
-                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1.04)';}}
-                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1)';}}>
+                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}18`;e.currentTarget.style.transform='scale(1.04)';}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}18`;e.currentTarget.style.transform='scale(1)';}}>
                     {root}
                   </button>
                 );
@@ -715,8 +756,8 @@ function SpeedFlashcards() {
                 return (
                   <button key={type} onClick={()=>handleTypeAnswer(type)}
                     style={{background:`${c}`,border:`0.5px solid ${c}`,color:c,padding:'.7rem .5rem',borderRadius:3,cursor:'pointer',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',transition:'all 0.15s'}}
-                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1.02)';}}
-                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.transform='scale(1)';}}>
+                    onMouseEnter={e=>{e.currentTarget.style.background=`${c}18`;e.currentTarget.style.transform='scale(1.02)';}}
+                    onMouseLeave={e=>{e.currentTarget.style.background=`${c}18`;e.currentTarget.style.transform='scale(1)';}}>
                     {label}
                   </button>
                 );
@@ -1694,7 +1735,7 @@ function ImprovisationGuidee() {
         {IMPRO_STYLES.map(s=>(
           <button key={s.id} onClick={()=>{setStyle(s);generate();}}
             style={{background:style?.id===s.id?`${s.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${style?.id===s.id?s.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.85rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${s.color}`;e.currentTarget.style.borderColor=`${s.color}`;}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${s.color}18`;e.currentTarget.style.borderColor=`${s.color}`;}}
             onMouseLeave={e=>{e.currentTarget.style.background=style?.id===s.id?`${s.color}`:'rgba(255,255,255,0.03)';e.currentTarget.style.borderColor=style?.id===s.id?s.color:'rgba(255,255,255,0.1)';}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
               <div style={{fontSize:14,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif'}}>{s.label}</div>
@@ -2081,8 +2122,8 @@ function GammeRecognition({ onBack }) {
             ].map(opt=>(
               <button key={opt.val} onClick={()=>handleAnswer(opt.val)}
                 style={{padding:'1.25rem .5rem',background:`${opt.color}08`,border:`1.5px solid ${opt.color}40`,borderRadius:14,cursor:'pointer',textAlign:'center',transition:'all 0.2s'}}
-                onMouseEnter={e=>{e.currentTarget.style.background=`${opt.color}`;e.currentTarget.style.borderColor=opt.color;e.currentTarget.style.transform='scale(1.03)';}}
-                onMouseLeave={e=>{e.currentTarget.style.background=`${opt.color}`;e.currentTarget.style.borderColor=`${opt.color}`;e.currentTarget.style.transform='scale(1)';}}>
+                onMouseEnter={e=>{e.currentTarget.style.background=`${opt.color}18`;e.currentTarget.style.borderColor=opt.color;e.currentTarget.style.transform='scale(1.03)';}}
+                onMouseLeave={e=>{e.currentTarget.style.background=`${opt.color}18`;e.currentTarget.style.borderColor=`${opt.color}`;e.currentTarget.style.transform='scale(1)';}}>
                 <div style={{fontSize:20,fontWeight:'bold',color:opt.color,fontFamily:'Georgia,serif',marginBottom:4}}>{opt.label}</div>
                 <div style={{fontSize:10,opacity:.55,fontFamily:'monospace'}}>{opt.desc}</div>
               </button>
@@ -2099,8 +2140,8 @@ function GammeRecognition({ onBack }) {
                 const nc=NOTE_COLORS[k]||'#F7DC6F';
                 return <button key={k} onClick={()=>handleAnswer({key:k,mode:'major'})}
                   style={{background:`${nc}10`,border:`1px solid ${nc}`,color:nc,padding:'.5rem .1rem',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s'}}
-                  onMouseEnter={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1.05)';}}
-                  onMouseLeave={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1)';}}>{k}</button>;
+                  onMouseEnter={e=>{e.currentTarget.style.background=`${nc}18`;e.currentTarget.style.transform='scale(1.05)';}}
+                  onMouseLeave={e=>{e.currentTarget.style.background=`${nc}18`;e.currentTarget.style.transform='scale(1)';}}>{k}</button>;
               })}
             </div>
             <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>PUIS LE MODE</div>
@@ -2154,8 +2195,8 @@ function OreilPage(){
     <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
       {MODS.map(m=>(<button key={m.id} onClick={()=>setSub(m.id)}
         style={{background:`${m.color}08`,border:`1px solid ${m.color}`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-        onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
-        onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';}}>
+        onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+        onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
           <span style={{fontSize:26}}>{m.icon}</span>
           <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
@@ -2856,8 +2897,8 @@ function TranspositionExercice() {
                     const nc=NOTE_COLORS[root]||'#C39BD3';
                     return <button key={root} onClick={()=>handleAnswer(ci,root)}
                       style={{background:`${nc}10`,border:`1px solid ${nc}`,color:nc,padding:'.45rem .1rem',borderRadius:6,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.15s'}}
-                      onMouseEnter={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1.04)';}}
-                      onMouseLeave={e=>{e.currentTarget.style.background=`${nc}`;e.currentTarget.style.transform='scale(1)';}}>
+                      onMouseEnter={e=>{e.currentTarget.style.background=`${nc}18`;e.currentTarget.style.transform='scale(1.04)';}}
+                      onMouseLeave={e=>{e.currentTarget.style.background=`${nc}18`;e.currentTarget.style.transform='scale(1)';}}>
                       {root}
                     </button>;
                   })}
@@ -3113,7 +3154,7 @@ function ImproPage() {
             {IMPRO_PROGRESSIONS.map(prog=>(
               <button key={prog.id} onClick={()=>{setSelected(prog);setActiveChord(null);}}
                 style={{background:'rgba(240,235,224,0.025)',border:`0.5px solid rgba(240,235,224,0.1)`,borderRadius:4,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-                onMouseEnter={e=>{e.currentTarget.style.background=`${prog.color}`;e.currentTarget.style.borderColor=`${prog.color}`;}}
+                onMouseEnter={e=>{e.currentTarget.style.background=`${prog.color}18`;e.currentTarget.style.borderColor=`${prog.color}`;}}
                 onMouseLeave={e=>{e.currentTarget.style.background='rgba(240,235,224,0.025)';e.currentTarget.style.borderColor='rgba(240,235,224,0.1)';}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
                   <div>
@@ -3480,8 +3521,8 @@ function SymbolesMusique() {
         ].map(b=>(
           <button key={b.id} onClick={()=>b.id==='ref'?setScreen('reference'):startExercice()}
             style={{background:`${b.color}08`,border:`1.5px solid ${b.color}40`,borderRadius:14,padding:'1.25rem',cursor:'pointer',textAlign:'center',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)',display:'flex',flexDirection:'column',alignItems:'center',gap:8}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${b.color}`;e.currentTarget.style.borderColor=b.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 8px 20px ${b.color}`;}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${b.color}`;e.currentTarget.style.borderColor=`${b.color}`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}>
+            onMouseEnter={e=>{e.currentTarget.style.background=`${b.color}18`;e.currentTarget.style.borderColor=b.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 8px 20px ${b.color}`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${b.color}18`;e.currentTarget.style.borderColor=`${b.color}`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}>
             <span style={{fontSize:30}}>{b.icon}</span>
             <div style={{fontSize:14,fontWeight:'bold',color:b.color,fontFamily:'Georgia,serif'}}>{b.label}</div>
             <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{b.sub}</div>
@@ -3594,7 +3635,7 @@ function SymbolesMusique() {
             if(answered){if(isC){bg=`${opt.color}`;border=opt.color;col=opt.color;}else if(isU){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}else{col='rgba(255,255,255,0.22)';}}
             return(<button key={opt.id} onClick={()=>handleExAnswer(opt.id)} disabled={answered}
               style={{background:bg,border:`1.5px solid ${border}`,color:col,padding:'.85rem .5rem',borderRadius:12,cursor:answered?'default':'pointer',fontSize:11.5,fontFamily:'Georgia,serif',fontWeight:'bold',textAlign:'center',transition:'all 0.2s',lineHeight:1.4}}
-              onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${opt.color}`;e.currentTarget.style.borderColor=`${opt.color}`;}}}
+              onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${opt.color}18`;e.currentTarget.style.borderColor=`${opt.color}`;}}}
               onMouseLeave={e=>{if(!answered){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.12)';}}}
             ><div style={{fontSize:22,marginBottom:4}}>{opt.symbol}</div>{opt.name}</button>);
           })}
@@ -3738,8 +3779,8 @@ function LectureExercice() {
           return(
           <button key={m.id} onClick={()=>pickMelody(m)}
             style={{background:`${color}08`,border:`1px solid ${color}30`,borderRadius:12,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderColor=color;e.currentTarget.style.transform='translateY(-1px)';}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderColor=`${color}`;e.currentTarget.style.transform='translateY(0)';}}>
+            onMouseEnter={e=>{e.currentTarget.style.background=`${color}18`;e.currentTarget.style.borderColor=color;e.currentTarget.style.transform='translateY(-1px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${color}18`;e.currentTarget.style.borderColor=`${color}`;e.currentTarget.style.transform='translateY(0)';}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <div style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',color,marginBottom:3}}>{m.title}</div>
               <span style={{fontSize:12,opacity:.6}}>{m.fixed?'📄':'🎲'}</span>
@@ -4256,8 +4297,8 @@ function ExercicesPage() {
         {MODS.map(m=>(
           <button key={m.id} onClick={()=>setSub(m.id)}
             style={{background:`${m.color}08`,border:`1px solid ${m.color}`,borderRadius:14,padding:'1.1rem',display:'flex',flexDirection:'column',gap:7,cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';}}>
+            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <span style={{fontSize:26}}>{m.icon}</span>
               <span style={{fontSize:9,fontFamily:'monospace',color:m.color,border:`0.5px solid ${m.color}`,padding:'2px 5px',borderRadius:6}}>DISPONIBLE</span>
@@ -4594,7 +4635,7 @@ function AccordsLibrary(){
       <p style={{fontSize:11,letterSpacing:'.2em',opacity:.35,marginBottom:'1.25rem',fontFamily:'monospace',textTransform:'uppercase'}}>{selType?CHORD_TYPES[selType].label:'Sélectionnez un accord pour commencer'}</p>
       {cNotes&&(<div style={{marginBottom:'1.25rem',animation:'fadeIn 0.4s ease forwards'}}><div style={{fontSize:10,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'.65rem'}}>NOTES</div><div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap'}}>{inversions[inv].map((note,i)=>(<div key={`n${i}`} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:5}}><div style={{width:46,height:46,borderRadius:'50%',border:`1px solid ${NOTE_COLORS[note]}`,background:`${NOTE_COLORS[note]}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:'bold',color:NOTE_COLORS[note],fontFamily:'monospace'}}>{note}</div><div style={{fontSize:9,opacity:.3,fontFamily:'monospace'}}>{i===0?'BASSE':i===cNotes.length-1?'AIGU':''}</div></div>))}</div></div>)}
       <div style={{display:'flex',gap:10,justifyContent:'center',flexWrap:'wrap',marginBottom:'1.5rem'}}>
-        <button onClick={()=>{setModalStep('type');setShowModal(true);}} style={{background:'transparent',border:`1px solid ${cName?color:'rgba(240,235,224,0.2)'}`,color:cName?color:'#f0ebe0',padding:'.75rem 1.5rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}} onMouseEnter={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.transform='translateY(-1px)';}} onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.transform='translateY(0)';}}>
+        <button onClick={()=>{setModalStep('type');setShowModal(true);}} style={{background:'transparent',border:`1px solid ${cName?color:'rgba(240,235,224,0.2)'}`,color:cName?color:'#f0ebe0',padding:'.75rem 1.5rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}} onMouseEnter={e=>{e.currentTarget.style.background=`${color}18`;e.currentTarget.style.transform='translateY(-1px)';}} onMouseLeave={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.transform='translateY(0)';}}>
           {cName?"Changer d'accord":'Choisir un accord'}
         </button>
         {cName&&(<button onClick={()=>setShowPiano(v=>!v)} style={{background:showPiano?`${color}`:'transparent',border:`1px solid ${showPiano?color:'rgba(240,235,224,0.2)'}`,color:showPiano?color:'rgba(240,235,224,0.6)',padding:'.75rem 1.1rem',fontSize:12,letterSpacing:'.15em',cursor:'pointer',borderRadius:2,transition:'all 0.3s ease',fontFamily:'monospace',textTransform:'uppercase'}}>🎹 Clavier</button>)}
@@ -4616,7 +4657,7 @@ function AccordsLibrary(){
           <span style={{color:isA?'#C39BD3':'rgba(240,235,224,0.2)',fontSize:18}}>›</span>
         </button>);})}
         </div>)}
-        {modalStep==='root'&&(<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,padding:'1.25rem',overflowY:'auto'}}>{ROOT_NOTES.map(root=>{const c=NOTE_COLORS[root]||'#C39BD3',ri=CHROMATIC.indexOf(root),prev=CHORD_TYPES[selType].formula.map(i=>CHROMATIC[(ri+i)%12]),isA=selRoot===root;return(<button key={root} onClick={()=>handleChordSelect(root)} style={{background:isA?`${c}`:'rgba(240,235,224,0.03)',border:`0.5px solid ${isA?c:'rgba(240,235,224,0.1)'}`,color:isA?c:'rgba(240,235,224,0.8)',padding:'1rem .5rem',borderRadius:2,cursor:'pointer',transition:'all 0.2s ease',display:'flex',flexDirection:'column',alignItems:'center',gap:6}} onMouseEnter={e=>{e.currentTarget.style.background=`${c}`;e.currentTarget.style.borderColor=`${c}`;e.currentTarget.style.color=c;}} onMouseLeave={e=>{if(!isA){e.currentTarget.style.background='rgba(240,235,224,0.03)';e.currentTarget.style.borderColor='rgba(240,235,224,0.1)';e.currentTarget.style.color='rgba(240,235,224,0.8)';}}}>
+        {modalStep==='root'&&(<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,padding:'1.25rem',overflowY:'auto'}}>{ROOT_NOTES.map(root=>{const c=NOTE_COLORS[root]||'#C39BD3',ri=CHROMATIC.indexOf(root),prev=CHORD_TYPES[selType].formula.map(i=>CHROMATIC[(ri+i)%12]),isA=selRoot===root;return(<button key={root} onClick={()=>handleChordSelect(root)} style={{background:isA?`${c}`:'rgba(240,235,224,0.03)',border:`0.5px solid ${isA?c:'rgba(240,235,224,0.1)'}`,color:isA?c:'rgba(240,235,224,0.8)',padding:'1rem .5rem',borderRadius:2,cursor:'pointer',transition:'all 0.2s ease',display:'flex',flexDirection:'column',alignItems:'center',gap:6}} onMouseEnter={e=>{e.currentTarget.style.background=`${c}18`;e.currentTarget.style.borderColor=`${c}`;e.currentTarget.style.color=c;}} onMouseLeave={e=>{if(!isA){e.currentTarget.style.background='rgba(240,235,224,0.03)';e.currentTarget.style.borderColor='rgba(240,235,224,0.1)';e.currentTarget.style.color='rgba(240,235,224,0.8)';}}}>
           <span style={{fontSize:22,fontWeight:'bold'}}>{root}</span><span style={{fontSize:9,opacity:.45,fontFamily:'monospace'}}>{prev.join('·')}</span>
         </button>);})}
         </div>)}
@@ -5305,8 +5346,8 @@ function CoinHarmoniePage() {
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
         {MODS.map((m)=>(
           <button key={m.id} onClick={()=>setSub(m.id)}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 10px 28px ${m.color}`;}}
-            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-3px) scale(1.02)';e.currentTarget.style.boxShadow=`0 10px 28px ${m.color}`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='none';}}
             style={{background:`${m.color}08`,border:`1.5px solid ${m.color}`,borderRadius:16,padding:'1.1rem',display:'flex',flexDirection:'column',gap:8,cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
               <span style={{fontSize:28}}>{m.icon}</span>
@@ -5338,7 +5379,7 @@ function MotCle({ children, definition, color='#A78BFA', onClickWord }) {
         padding:'0 1px', transition:'all 0.15s',
         display:'inline',
       }}
-      onMouseEnter={e=>{e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderRadius='3px';}}
+      onMouseEnter={e=>{e.currentTarget.style.background=`${color}18`;e.currentTarget.style.borderRadius='3px';}}
       onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}
     >
       {children}
@@ -5805,7 +5846,7 @@ function CourseQuiz({ questions, courseTitle, color, onClose }) {
             return(
               <button key={i} onClick={()=>pick(i)} disabled={answered}
                 style={{background:bg,border:`1.5px solid ${border}`,color:col,padding:'.9rem 1rem',borderRadius:12,cursor:answered?'default':'pointer',textAlign:'left',fontSize:13,fontFamily:'Georgia,serif',lineHeight:1.5,transition:'all 0.2s'}}
-                onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${color}`;e.currentTarget.style.borderColor=`${color}`;}}}
+                onMouseEnter={e=>{if(!answered){e.currentTarget.style.background=`${color}18`;e.currentTarget.style.borderColor=`${color}`;}}}
                 onMouseLeave={e=>{if(!answered){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.12)';}}}
               >
                 <span style={{fontFamily:'monospace',fontWeight:'bold',marginRight:8,opacity:.5}}>{String.fromCharCode(65+i)}.</span>{opt}
@@ -6316,8 +6357,8 @@ function TheoriePage() {
           ].map(m=>(
             <button key={m.id} onClick={()=>setExSub(m.id)}
               style={{background:`${m.color}08`,border:`1.5px solid ${m.color}`,borderRadius:14,padding:'1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}
-              onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 8px 20px ${m.color}`;}}
-              onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
+              onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 8px 20px ${m.color}`;}}
+              onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
               <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
                 <span style={{fontSize:28}}>{m.icon}</span>
                 <div>
@@ -6371,7 +6412,7 @@ function TheoriePage() {
                   <div key={ii}
                     onClick={hasCourse?()=>setCourse(item.courseId):undefined}
                     style={{padding:'.75rem 1rem',borderTop:'0.5px solid rgba(255,255,255,0.05)',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:hasCourse?'pointer':'default',transition:'all 0.2s',background:hasCourse?'transparent':'transparent'}}
-                    onMouseEnter={e=>{if(hasCourse)e.currentTarget.style.background=`${cat.color}`;}}
+                    onMouseEnter={e=>{if(hasCourse)e.currentTarget.style.background=`${cat.color}18`;}}
                     onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}>
                     <div>
                       <div style={{fontSize:13,fontFamily:'Georgia,serif',color:hasCourse?'rgba(255,255,255,0.9)':'rgba(255,255,255,0.55)',marginBottom:2,fontWeight:hasCourse?'600':'normal'}}>{item.name}</div>
@@ -6516,139 +6557,656 @@ function ApprentissagePage({sub,setSub}){
 
 // ── Journal de pratique ───────────────────────────────────────────────────────
 function JournalPage() {
-  const [journal, setJournal] = useState(loadJournal);
-  const [goals, setGoals]     = useState(loadGoals);
-  const [editGoals, setEditGoals] = useState(false);
-  const [todayMins, setTodayMins] = useState('');
-  const [todayNote, setTodayNote] = useState('');
+  const [char, setChar] = useState(loadChar);
+  const [tab,  setTab]  = useState('sessions'); // sessions | grid
 
-  const today = todayStr();
+  // Session timer
+  const [timerActive,   setTimerActive]   = useState(false);
+  const [timerSecs,     setTimerSecs]     = useState(0);
+  const [comment,       setComment]       = useState('');
+  const [pendingMins,   setPendingMins]   = useState(null); // mins from stopped timer
+  const timerIntervalRef = useRef(null);
 
-  const addEntry = () => {
-    const mins = parseInt(todayMins);
+  // Daily hours goal
+  const [editGoal, setEditGoal] = useState(false);
+  const [goalInput, setGoalInput] = useState(String(char.dailyHoursGoal||1));
+
+  function saveCharLocal(c) { setChar(c); saveChar(c); }
+
+  // Timer
+  function startTimer()  { setTimerActive(true); setTimerSecs(0); }
+  function pauseTimer()  { setTimerActive(false); }
+  function stopTimer()   {
+    setTimerActive(false);
+    const mins = Math.max(1, Math.round(timerSecs/60));
+    setPendingMins(mins);
+  }
+  function resetTimer()  { setTimerActive(false); setTimerSecs(0); setPendingMins(null); }
+
+  useEffect(() => {
+    if (timerActive) {
+      timerIntervalRef.current = setInterval(() => setTimerSecs(s=>s+1), 1000);
+    } else {
+      clearInterval(timerIntervalRef.current);
+    }
+    return () => clearInterval(timerIntervalRef.current);
+  }, [timerActive]);
+
+  // Save session
+  function saveSession(mins) {
     if (!mins || mins < 1) return;
-    const entry = { mins, note: todayNote, ts: Date.now() };
-    const existing = journal[today] || [];
-    const updated = { ...journal, [today]: [...existing, entry] };
-    setJournal(updated); saveJournal(updated);
-    setTodayMins(''); setTodayNote('');
-  };
+    const session = { date: todayStr(), mins, comment: comment.trim(), ts: Date.now() };
+    const xpGained = Math.round(mins * XP_PER_MIN);
+    const newSessions = [...(char.sessions||[]), session];
+    const newHours = (char.practicedHours||0) + mins/60;
+    const newXp    = (char.totalXp||0) + xpGained;
+    saveCharLocal({ ...char, sessions: newSessions, practicedHours: newHours, totalXp: newXp });
+    setComment(''); setPendingMins(null); resetTimer();
+  }
 
-  // Compute weekly and total stats
-  const now = new Date();
-  const weekDays = Array.from({length:7},(_,i)=>{const d=new Date(now);d.setDate(d.getDate()-i);return d.toISOString().slice(0,10);}).reverse();
-  const weekMins = weekDays.reduce((acc,d)=>acc+(journal[d]||[]).reduce((s,e)=>s+e.mins,0),0);
-  const totalMins = Object.values(journal).reduce((acc,entries)=>acc+entries.reduce((s,e)=>s+e.mins,0),0);
-  const todayTotalMins = (journal[today]||[]).reduce((s,e)=>s+e.mins,0);
+  // Stats
+  const totalHours      = char.practicedHours || 0;
+  const GOAL_HOURS      = 10000;
+  const pctToGoal       = Math.min(100, (totalHours/GOAL_HOURS)*100);
+  const dailyGoal       = char.dailyHoursGoal || 1;
+  const yearsLeft       = dailyGoal>0 ? ((GOAL_HOURS-totalHours)/(dailyGoal*365)).toFixed(1) : '∞';
+  const timerDisplay    = `${String(Math.floor(timerSecs/60)).padStart(2,'0')}:${String(timerSecs%60).padStart(2,'0')}`;
 
-  const weekPct  = Math.min(100, Math.round((weekMins/goals.weeklyMins)*100));
-  const totalPct = Math.min(100, Math.round((totalMins/goals.longTermMins)*100));
+  // Today sessions
+  const todaySessions = (char.sessions||[]).filter(s=>s.date===todayStr());
+  const todayMins     = todaySessions.reduce((a,s)=>a+s.mins,0);
+  const todayHours    = (todayMins/60).toFixed(2);
 
-  const fmt = (m) => m>=60?`${Math.floor(m/60)}h${m%60>0?` ${m%60}min`:''}`:`${m} min`;
+  // Last 7 days for mini calendar
+  const last7 = Array.from({length:7},(_,i)=>{
+    const d=new Date(); d.setDate(d.getDate()-6+i);
+    const ds=d.toISOString().slice(0,10);
+    const mins=(char.sessions||[]).filter(s=>s.date===ds).reduce((a,s)=>a+s.mins,0);
+    return {date:ds,mins,label:d.toLocaleDateString('fr',{weekday:'short'}).toUpperCase()};
+  });
+
+  const fmt = m => m>=60?`${Math.floor(m/60)}h${m%60>0?` ${m%60}m`:''}`:`${m}m`;
 
   return (
-    <div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'1.5rem'}}>
-        <div>
-          <h2 style={{fontSize:22,fontWeight:'bold',marginBottom:'.4rem',letterSpacing:'-.02em'}}>Journal de pratique</h2>
-          <p style={{fontSize:11,opacity:.35,fontFamily:'monospace',letterSpacing:'.08em'}}>SUIS TA PROGRESSION QUOTIDIENNE</p>
-        </div>
-        <button onClick={()=>setEditGoals(v=>!v)} style={{background:editGoals?'rgba(133,193,233,0.15)':'transparent',border:`0.5px solid ${editGoals?'#85C1E9':'rgba(240,235,224,0.2)'}`,color:editGoals?'#85C1E9':'rgba(240,235,224,0.45)',padding:'.35rem .7rem',borderRadius:2,cursor:'pointer',fontSize:10,fontFamily:'monospace',letterSpacing:'.08em',transition:'all 0.2s'}}>
-          ⚙ OBJECTIFS
-        </button>
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Tab header */}
+      <div style={{display:'flex',borderBottom:'1px solid rgba(255,255,255,0.07)',flexShrink:0,background:'rgba(13,11,30,0.6)'}}>
+        {[['sessions','📋 Sessions'],['grid','⬜ 10 000h']].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)}
+            style={{flex:1,padding:'.65rem .25rem',background:'none',border:'none',
+              borderBottom:tab===id?'2px solid #82E0AA':'2px solid transparent',
+              color:tab===id?'#82E0AA':'rgba(255,255,255,0.4)',
+              cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.04em',transition:'all 0.2s',
+              display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* Edit goals */}
-      {editGoals && (
-        <div style={{background:'rgba(133,193,233,0.05)',border:'0.5px solid rgba(133,193,233,0.15)',borderRadius:4,padding:'1rem',marginBottom:'1.25rem',animation:'fadeIn 0.3s ease'}}>
-          <div style={{fontSize:10,color:'#85C1E9',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'1rem'}}>OBJECTIFS DE PRATIQUE</div>
-          {[
-            {label:'Objectif hebdomadaire (minutes)',key:'weeklyMins',hint:'Ex: 150 = 5 sessions de 30 min'},
-            {label:'Objectif long terme (minutes)',  key:'longTermMins',hint:'Ex: 3000 ≈ 50 heures'},
-          ].map(({label,key,hint})=>(
-            <div key={key} style={{marginBottom:'.75rem'}}>
-              <div style={{fontSize:10,opacity:.5,fontFamily:'monospace',marginBottom:'.35rem'}}>{label.toUpperCase()}</div>
-              <input type="number" value={goals[key]} onChange={e=>{const g={...goals,[key]:parseInt(e.target.value)||0};setGoals(g);saveGoals(g);}}
-                style={{width:'100%',background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.2)',borderRadius:2,padding:'.5rem .75rem',color:'#f0ebe0',fontFamily:'monospace',fontSize:13,outline:'none'}}/>
-              <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',marginTop:3}}>{hint}</div>
+      {/* ── SESSIONS TAB ──────────────────────────────────────────────────────── */}
+      {tab==='sessions' && (
+        <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+
+          {/* Timer card */}
+          <div style={{padding:'1.25rem',background:'rgba(130,224,170,0.07)',border:'1px solid rgba(130,224,170,0.2)',borderRadius:16}}>
+            <div style={{fontSize:10,color:'#82E0AA',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'1rem'}}>⏱ CHRONOMÈTRE DE SESSION</div>
+            <div style={{textAlign:'center',marginBottom:'1rem'}}>
+              <div style={{fontSize:52,fontWeight:'bold',fontFamily:'monospace',color:timerActive?'#82E0AA':'rgba(255,255,255,0.7)',letterSpacing:'.04em',lineHeight:1}}>{timerDisplay}</div>
+              {pendingMins && <div style={{fontSize:13,color:'#F7DC6F',marginTop:6,fontFamily:'monospace'}}>Session : {pendingMins} min enregistrée</div>}
             </div>
-          ))}
+            <div style={{display:'flex',gap:8,marginBottom:'1rem'}}>
+              {!timerActive && timerSecs===0 && !pendingMins && (
+                <button onClick={startTimer} style={{flex:1,padding:'.75rem',background:'rgba(130,224,170,0.15)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.08em'}}>▶ DÉMARRER</button>
+              )}
+              {timerActive && (
+                <>
+                  <button onClick={pauseTimer} style={{flex:1,padding:'.75rem',background:'rgba(247,220,111,0.12)',border:'1.5px solid #F7DC6F',color:'#F7DC6F',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:'bold'}}>⏸ PAUSE</button>
+                  <button onClick={stopTimer}  style={{flex:1,padding:'.75rem',background:'rgba(241,148,138,0.12)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:'bold'}}>■ STOP</button>
+                </>
+              )}
+              {!timerActive && timerSecs>0 && !pendingMins && (
+                <>
+                  <button onClick={()=>setTimerActive(true)} style={{flex:1,padding:'.75rem',background:'rgba(130,224,170,0.12)',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:12,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold'}}>▶ REPRENDRE</button>
+                  <button onClick={stopTimer}  style={{flex:1,padding:'.75rem',background:'rgba(241,148,138,0.12)',border:'1.5px solid #F1948A',color:'#F1948A',borderRadius:12,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold'}}>■ STOP</button>
+                </>
+              )}
+              {pendingMins && (
+                <button onClick={resetTimer} style={{padding:'.75rem .9rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:12,cursor:'pointer',fontSize:12,fontFamily:'monospace'}}>↺</button>
+              )}
+            </div>
+            {/* Comment input */}
+            <input
+              placeholder="Commentaire (facultatif) — ex: Gammes Do majeur, Chopin nocturne…"
+              value={comment} onChange={e=>setComment(e.target.value)}
+              style={{width:'100%',padding:'.65rem .85rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:10,color:'rgba(255,255,255,0.8)',fontSize:12,fontFamily:'Georgia,serif',boxSizing:'border-box',marginBottom:pendingMins?'1rem':'0',outline:'none'}}
+            />
+            {pendingMins && (
+              <button onClick={()=>saveSession(pendingMins)}
+                style={{width:'100%',padding:'.75rem',background:'linear-gradient(135deg,rgba(130,224,170,0.2),rgba(6,182,212,0.15))',border:'1.5px solid #82E0AA',color:'#82E0AA',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.08em',animation:'fadeIn 0.3s ease'}}>
+                ✓ ENREGISTRER {pendingMins} MINUTE{pendingMins>1?'S':''}
+              </button>
+            )}
+          </div>
+
+          {/* Saisie manuelle */}
+          <ManualSessionForm char={char} saveCharLocal={saveCharLocal}/>
+
+          {/* Today recap */}
+          {todaySessions.length>0 && (
+            <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+              <div style={{fontSize:10,color:'#85C1E9',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>AUJOURD'HUI — {fmt(todayMins)}</div>
+              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                {todaySessions.map((s,i)=>(
+                  <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'.5rem .75rem',background:'rgba(133,193,233,0.06)',border:'0.5px solid rgba(133,193,233,0.18)',borderRadius:8}}>
+                    <div>
+                      <span style={{fontSize:12,fontWeight:'bold',color:'#85C1E9',fontFamily:'monospace'}}>{fmt(s.mins)}</span>
+                      {s.comment&&<span style={{fontSize:11,opacity:.6,marginLeft:8,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{s.comment}</span>}
+                    </div>
+                    <span style={{fontSize:9,opacity:.35,fontFamily:'monospace'}}>{new Date(s.ts).toLocaleTimeString('fr',{hour:'2-digit',minute:'2-digit'})}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Last 7 days */}
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+            <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>7 DERNIERS JOURS</div>
+            <div style={{display:'flex',gap:5}}>
+              {last7.map(({date,mins,label})=>{
+                const h=mins/60,max=Math.max(...last7.map(d=>d.mins/60),1);
+                const pct=h/max,isToday=date===todayStr();
+                const col=isToday?'#82E0AA':'#85C1E9';
+                return(
+                  <div key={date} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                    <div style={{width:'100%',height:60,background:'rgba(255,255,255,0.06)',borderRadius:6,overflow:'hidden',display:'flex',alignItems:'flex-end'}}>
+                      <div style={{width:'100%',height:`${Math.max(4,pct*100)}%`,background:col,borderRadius:4,opacity:mins>0?1:0.2,transition:'height 0.4s ease'}}/>
+                    </div>
+                    <div style={{fontSize:8,fontFamily:'monospace',color:isToday?col:'rgba(255,255,255,0.35)',letterSpacing:'.03em'}}>{label}</div>
+                    {mins>0&&<div style={{fontSize:8,fontFamily:'monospace',color:col,opacity:.7}}>{fmt(mins)}</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Objectif quotidien */}
+          <div style={{padding:'.85rem 1rem',background:'rgba(139,92,246,0.06)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:12,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div>
+              <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:3}}>OBJECTIF QUOTIDIEN</div>
+              {editGoal?(
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  <input type="number" min="0.5" max="12" step="0.5" value={goalInput}
+                    onChange={e=>setGoalInput(e.target.value)}
+                    style={{width:60,padding:'.3rem .5rem',background:'rgba(255,255,255,0.08)',border:'1px solid rgba(139,92,246,0.4)',borderRadius:7,color:'#A78BFA',fontFamily:'monospace',fontSize:12,outline:'none'}}/>
+                  <span style={{fontSize:11,opacity:.6,fontFamily:'monospace'}}>h/jour</span>
+                  <button onClick={()=>{const h=parseFloat(goalInput);if(h>0){saveCharLocal({...char,dailyHoursGoal:h});}setEditGoal(false);}}
+                    style={{padding:'.3rem .6rem',background:'rgba(139,92,246,0.2)',border:'1px solid #A78BFA',color:'#A78BFA',borderRadius:7,cursor:'pointer',fontSize:10,fontFamily:'monospace'}}>OK</button>
+                </div>
+              ):(
+                <div style={{fontSize:16,fontWeight:'bold',color:'#A78BFA',fontFamily:'monospace'}}>{dailyGoal}h/jour</div>
+              )}
+            </div>
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:11,opacity:.5,fontFamily:'monospace',marginBottom:2}}>Objectif 10 000h en</div>
+              <div style={{fontSize:18,fontWeight:'bold',color:'#A78BFA',fontFamily:'Georgia,serif'}}>{yearsLeft} ans</div>
+              <button onClick={()=>{setGoalInput(String(dailyGoal));setEditGoal(v=>!v);}} style={{marginTop:4,background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',fontSize:9,fontFamily:'monospace'}}>⚙ modifier</button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Objectives progress */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:'1.5rem'}}>
-        {[
-          {label:'Cette semaine', cur:weekMins,  max:goals.weeklyMins,  color:'#85C1E9'},
-          {label:'Long terme',    cur:totalMins, max:goals.longTermMins, color:'#C39BD3'},
-        ].map(({label,cur,max,color})=>{
-          const p=Math.min(100,Math.round((cur/max)*100));
-          return (
-            <div key={label} style={{background:'rgba(240,235,224,0.03)',border:'0.5px solid rgba(240,235,224,0.08)',borderRadius:4,padding:'.85rem'}}>
-              <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',marginBottom:'.5rem'}}>{label.toUpperCase()}</div>
-              <div style={{fontSize:18,fontWeight:'bold',color,fontFamily:'Georgia,serif',lineHeight:1,marginBottom:2}}>{fmt(cur)}</div>
-              <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',marginBottom:'.5rem'}}>/ {fmt(max)} · {p}%</div>
-              <div style={{height:4,background:'rgba(240,235,224,0.07)',borderRadius:2,overflow:'hidden'}}>
-                <div style={{height:'100%',width:`${p}%`,background:color,borderRadius:2,transition:'width 0.8s ease'}}/>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Add today's session */}
-      <div style={{marginBottom:'1.5rem',padding:'1rem',background:'rgba(240,235,224,0.025)',border:'0.5px solid rgba(240,235,224,0.1)',borderRadius:4}}>
-        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.75rem'}}>
-          AJOUTER UNE SESSION — AUJOURD'HUI {todayTotalMins>0?`(${fmt(todayTotalMins)} enregistrées)`:''}</div>
-        <div style={{display:'flex',gap:8,marginBottom:'.6rem'}}>
-          <input type="number" placeholder="Durée (min)" value={todayMins} onChange={e=>setTodayMins(e.target.value)}
-            style={{flex:'0 0 110px',background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.2)',borderRadius:2,padding:'.5rem .75rem',color:'#f0ebe0',fontFamily:'monospace',fontSize:12,outline:'none'}}/>
-          <input type="text" placeholder="Note optionnelle (ex: gammes, accords...)" value={todayNote} onChange={e=>setTodayNote(e.target.value)}
-            style={{flex:1,background:'rgba(240,235,224,0.05)',border:'0.5px solid rgba(240,235,224,0.2)',borderRadius:2,padding:'.5rem .75rem',color:'#f0ebe0',fontFamily:'Georgia,serif',fontSize:12,outline:'none'}}/>
-        </div>
-        <button onClick={addEntry} disabled={!todayMins||parseInt(todayMins)<1}
-          style={{width:'100%',padding:'.65rem',background:todayMins?'rgba(130,224,170,0.15)':'rgba(240,235,224,0.03)',border:`0.5px solid ${todayMins?'#82E0AA':'rgba(240,235,224,0.1)'}`,color:todayMins?'#82E0AA':'rgba(240,235,224,0.25)',borderRadius:2,cursor:todayMins?'pointer':'not-allowed',fontSize:11,fontFamily:'monospace',letterSpacing:'.1em',transition:'all 0.2s'}}>
-          + ENREGISTRER LA SESSION
-        </button>
-      </div>
-
-      {/* Week calendar */}
-      <div style={{marginBottom:'1.25rem'}}>
-        <div style={{fontSize:10,letterSpacing:'.15em',opacity:.35,fontFamily:'monospace',marginBottom:'.75rem'}}>CETTE SEMAINE</div>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
-          {weekDays.map(d=>{
-            const mins=(journal[d]||[]).reduce((s,e)=>s+e.mins,0);
-            const isToday=d===today;
-            const intensity=Math.min(1,mins/60);
-            return (
-              <div key={d} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3}}>
-                <div style={{fontSize:8,opacity:.35,fontFamily:'monospace'}}>{['D','L','M','M','J','V','S'][new Date(d+'T12:00:00').getDay()]}</div>
-                <div style={{width:'100%',aspectRatio:'1',borderRadius:3,background:mins>0?`rgba(130,224,170,${0.15+intensity*0.6})`:'rgba(240,235,224,0.05)',border:isToday?'1px solid rgba(130,224,170,0.5)':'0.5px solid rgba(240,235,224,0.08)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                  {mins>0&&<span style={{fontSize:7,fontFamily:'monospace',color:'#82E0AA'}}>{mins}</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Recent entries */}
-      {Object.entries(journal).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,7).map(([date,entries])=>(
-        <div key={date} style={{marginBottom:'.65rem'}}>
-          <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',marginBottom:'.3rem'}}>{date}{date===today?' (aujourd\'hui)':''} — {fmt(entries.reduce((s,e)=>s+e.mins,0))}</div>
-          {entries.map((e,i)=>(
-            <div key={i} style={{padding:'.45rem .75rem',background:'rgba(240,235,224,0.025)',border:'0.5px solid rgba(240,235,224,0.07)',borderRadius:3,marginBottom:3,display:'flex',gap:8,alignItems:'center'}}>
-              <span style={{fontSize:11,fontFamily:'monospace',color:'#82E0AA',flexShrink:0}}>{e.mins} min</span>
-              {e.note&&<span style={{fontSize:11,opacity:.5,fontFamily:'Georgia,serif'}}>{e.note}</span>}
-            </div>
-          ))}
-        </div>
-      ))}
+      {/* ── GRILLE 10 000H TAB ─────────────────────────────────────────────── */}
+      {tab==='grid' && (
+        <TenThousandGrid char={char}/>
+      )}
     </div>
   );
 }
 
+// Formulaire de saisie manuelle (composant séparé pour éviter useState dans map)
+function ManualSessionForm({ char, saveCharLocal }) {
+  const [mins,    setMins]    = useState('');
+  const [comment, setComment] = useState('');
+
+  function submit() {
+    const m = parseInt(mins);
+    if (!m || m < 1) return;
+    const session = { date: todayStr(), mins: m, comment: comment.trim(), ts: Date.now() };
+    const xpGained = Math.round(m * XP_PER_MIN);
+    saveCharLocal({
+      ...char,
+      sessions:      [...(char.sessions||[]), session],
+      practicedHours:(char.practicedHours||0) + m/60,
+      totalXp:       (char.totalXp||0) + xpGained,
+    });
+    setMins(''); setComment('');
+  }
+
+  return (
+    <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+      <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>SAISIE MANUELLE</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 2fr',gap:8,marginBottom:8}}>
+        <input type="number" min="1" max="480" placeholder="Durée (min)"
+          value={mins} onChange={e=>setMins(e.target.value)}
+          style={{padding:'.6rem .75rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:9,color:'rgba(255,255,255,0.8)',fontSize:12,fontFamily:'monospace',outline:'none'}}/>
+        <input placeholder="Commentaire…"
+          value={comment} onChange={e=>setComment(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&submit()}
+          style={{padding:'.6rem .75rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:9,color:'rgba(255,255,255,0.8)',fontSize:12,fontFamily:'Georgia,serif',outline:'none'}}/>
+      </div>
+      <button onClick={submit} disabled={!mins||parseInt(mins)<1}
+        style={{width:'100%',padding:'.7rem',background:mins&&parseInt(mins)>=1?'rgba(130,224,170,0.12)':'rgba(255,255,255,0.03)',border:`1.5px solid ${mins&&parseInt(mins)>=1?'#82E0AA':'rgba(255,255,255,0.1)'}`,color:mins&&parseInt(mins)>=1?'#82E0AA':'rgba(255,255,255,0.25)',borderRadius:10,cursor:mins&&parseInt(mins)>=1?'pointer':'not-allowed',fontSize:12,fontFamily:'monospace',letterSpacing:'.08em',fontWeight:'bold',transition:'all 0.3s'}}>
+        + AJOUTER CETTE SESSION
+      </button>
+    </div>
+  );
+}
+
+// Grille 10 000 heures
+function TenThousandGrid({ char }) {
+  const TOTAL_CELLS = 10000;
+  const CELLS_PER_ROW = 50;
+  const filled = Math.floor(char.practicedHours || 0);
+  const pct    = ((char.practicedHours||0)/TOTAL_CELLS*100).toFixed(2);
+  const dailyGoal = char.dailyHoursGoal || 1;
+  const remaining = TOTAL_CELLS - (char.practicedHours||0);
+  const yearsLeft = dailyGoal>0 ? (remaining/(dailyGoal*365)).toFixed(1) : '∞';
+
+  // Only render a window of cells (first 2000 for perf)
+  const visibleCells = Math.min(TOTAL_CELLS, Math.max(filled+200, 500));
+  const rows = Math.ceil(visibleCells / CELLS_PER_ROW);
+
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      {/* Header stats */}
+      <div style={{padding:'1.25rem',background:'linear-gradient(135deg,rgba(130,224,170,0.1),rgba(6,182,212,0.08))',border:'1px solid rgba(130,224,170,0.25)',borderRadius:16}}>
+        <div style={{fontSize:10,color:'#82E0AA',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>OBJECTIF 10 000 HEURES</div>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:'.75rem'}}>
+          <div>
+            <div style={{fontSize:40,fontWeight:'bold',color:'#82E0AA',fontFamily:'Georgia,serif',lineHeight:1}}>{Math.floor(char.practicedHours||0).toLocaleString()}</div>
+            <div style={{fontSize:11,opacity:.5,fontFamily:'monospace'}}>heures pratiquées</div>
+          </div>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:24,fontWeight:'bold',color:'rgba(255,255,255,0.6)',fontFamily:'Georgia,serif'}}>{pct}%</div>
+            <div style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>de l'objectif</div>
+          </div>
+        </div>
+        <div style={{height:8,background:'rgba(255,255,255,0.08)',borderRadius:4,overflow:'hidden',marginBottom:'.65rem'}}>
+          <div style={{height:'100%',width:`${Math.min(100,(char.practicedHours||0)/100)}%`,background:'linear-gradient(90deg,#82E0AA,#06B6D4)',borderRadius:4,transition:'width 0.6s ease'}}/>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:10,opacity:.4,fontFamily:'monospace'}}>
+          <span>À raison de {dailyGoal}h/jour</span>
+          <span>→ encore {yearsLeft} an{parseFloat(yearsLeft)>1?'s':''}</span>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div style={{display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}}>
+        <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:12,height:12,borderRadius:2,background:'#82E0AA'}}/><span style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>Heure complétée</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:12,height:12,borderRadius:2,background:'rgba(130,224,170,0.3)',border:'1px solid rgba(130,224,170,0.4)'}}/><span style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>Heure partielle</span></div>
+        <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:12,height:12,borderRadius:2,background:'rgba(255,255,255,0.06)',border:'1px solid rgba(255,255,255,0.1)'}}/><span style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>À compléter</span></div>
+        <span style={{fontSize:10,opacity:.35,fontFamily:'monospace',marginLeft:'auto'}}>1 case = 1 heure</span>
+      </div>
+
+      {/* Grid */}
+      <div style={{background:'rgba(255,255,255,0.02)',border:'1px solid rgba(255,255,255,0.07)',borderRadius:14,padding:'1rem',overflowX:'auto'}}>
+        <div style={{display:'grid',gridTemplateColumns:`repeat(${CELLS_PER_ROW},1fr)`,gap:2,minWidth:500}}>
+          {Array.from({length:visibleCells}).map((_,i)=>{
+            const hours = char.practicedHours||0;
+            const filled_full = i < Math.floor(hours);
+            const partial     = !filled_full && i === Math.floor(hours) && (hours%1)>0;
+            return (
+              <div key={i} style={{
+                aspectRatio:'1',
+                borderRadius:2,
+                background: filled_full
+                  ? '#82E0AA'
+                  : partial
+                  ? `rgba(130,224,170,${(hours%1).toFixed(2)})`
+                  : 'rgba(255,255,255,0.06)',
+                border: filled_full
+                  ? 'none'
+                  : '0.5px solid rgba(255,255,255,0.08)',
+                transition:'background 0.3s',
+              }}/>
+            );
+          })}
+          {/* Remaining cells (simplified) */}
+          {visibleCells < TOTAL_CELLS && (
+            <div style={{gridColumn:`span ${CELLS_PER_ROW}`,textAlign:'center',padding:'.5rem',fontSize:9,opacity:.3,fontFamily:'monospace'}}>
+              ... et {(TOTAL_CELLS-visibleCells).toLocaleString()} cases supplémentaires à débloquer
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // ── Compétences Page ──────────────────────────────────────────────────────────
+// ── Pixel Character SVG ───────────────────────────────────────────────────────
+const SKIN_TONES  = ['#F5CBA7','#E59866','#CA6F1E','#784212'];
+const HAIR_COLORS = ['#1C1C1C','#7D6608','#A04000','#F39C12','#E5E7E9'];
+const OUTFIT_COLORS= ['#2E4057','#1A5276','#7B241C','#1E8449','#6C3483'];
+
+const SHOP_ITEMS = [
+  {id:'hat1',    name:'Chapeau de jazz',    icon:'🎩', type:'hat',   cost:15, color:'#F7DC6F', desc:'Indispensable pour jouer du jazz'},
+  {id:'hat2',    name:'Béret classique',    icon:'👒', type:'hat',   cost:20, color:'#85C1E9', desc:'Le style du pianiste classique'},
+  {id:'outfit1', name:'Smoking élégant',    icon:'🤵', type:'outfit',cost:30, color:'#8B5CF6', desc:'Pour les grandes occasions'},
+  {id:'outfit2', name:'Tenue folk',         icon:'🎸', type:'outfit',cost:25, color:'#10B981', desc:'Décontracté et musical'},
+  {id:'badge1',  name:'Badge Oreille d\'or',icon:'🏅', type:'badge', cost:10, color:'#F59E0B', desc:'Maître de l\'oreille musicale'},
+  {id:'badge2',  name:'Étoile filante',     icon:'⭐', type:'badge', cost:10, color:'#A78BFA', desc:'Pour les virtuoses'},
+  {id:'aura1',   name:'Aura violette',      icon:'✨', type:'aura',  cost:50, color:'#A78BFA', desc:'L\'aura du Maestro'},
+  {id:'aura2',   name:'Aura dorée',         icon:'🌟', type:'aura',  cost:50, color:'#F7DC6F', desc:'Légende vivante'},
+];
+
+function PixelCharacter({ gender='M', skinTone=0, hairColor=0, outfitIdx=0, accessories=[], size=180, aura=null }) {
+  const skin = SKIN_TONES[skinTone] || SKIN_TONES[0];
+  const hair = HAIR_COLORS[hairColor] || HAIR_COLORS[0];
+  const outfit= OUTFIT_COLORS[outfitIdx] || OUTFIT_COLORS[0];
+  const hasHat   = accessories.includes('hat1') || accessories.includes('hat2');
+  const hasBadge = accessories.includes('badge1') || accessories.includes('badge2');
+  const auraColor= aura==='aura1'?'#A78BFA':aura==='aura2'?'#F7DC6F':null;
+
+  return (
+    <svg viewBox="0 0 64 96" width={size} height={size*1.5} style={{imageRendering:'pixelated',overflow:'visible'}}>
+      {/* Aura */}
+      {auraColor && (
+        <ellipse cx="32" cy="80" rx="26" ry="8" fill={auraColor} opacity="0.25" style={{animation:'orbFloat 2s ease-in-out infinite'}}/>
+      )}
+      {/* Shadow */}
+      <ellipse cx="32" cy="90" rx="14" ry="4" fill="rgba(0,0,0,0.3)"/>
+
+      {/* Body / Outfit */}
+      {/* Torso */}
+      <rect x="20" y="48" width="24" height="24" fill={outfit}/>
+      {/* Collar */}
+      <rect x="28" y="48" width="8" height="6" fill={gender==='F'?'#F8BBD9':'#ffffff'} opacity="0.6"/>
+      {/* Arms */}
+      <rect x="12" y="50" width="8" height="16" fill={outfit}/>
+      <rect x="44" y="50" width="8" height="16" fill={outfit}/>
+      {/* Hands */}
+      <rect x="12" y="66" width="8" height="6" fill={skin}/>
+      <rect x="44" y="66" width="8" height="6" fill={skin}/>
+      {/* Legs */}
+      <rect x="20" y="72" width="10" height="18" fill={gender==='F'?'#F48FB1':'#2C3E50'}/>
+      <rect x="34" y="72" width="10" height="18" fill={gender==='F'?'#F48FB1':'#2C3E50'}/>
+      {/* Shoes */}
+      <rect x="18" y="88" width="12" height="5" fill="#1C1C1C"/>
+      <rect x="34" y="88" width="12" height="5" fill="#1C1C1C"/>
+
+      {/* Neck */}
+      <rect x="28" y="40" width="8" height="10" fill={skin}/>
+      {/* Head */}
+      <rect x="18" y="16" width="28" height="28" fill={skin}/>
+      {/* Hair — top */}
+      {hasHat ? (
+        <>
+          <rect x="14" y="12" width="36" height="8" fill={accessories.includes('hat1')?'#1C1C1C':'#A04000'} rx="2"/>
+          <rect x="10" y="18" width="44" height="4" fill={accessories.includes('hat1')?'#1C1C1C':'#A04000'}/>
+        </>
+      ) : (
+        <>
+          <rect x="16" y="12" width="32" height="12" fill={hair}/>
+          {gender==='F'&&<><rect x="12" y="16" width="8" height="28" fill={hair}/><rect x="44" y="16" width="8" height="28" fill={hair}/></>}
+        </>
+      )}
+      {/* Eyes */}
+      <rect x="22" y="26" width="6" height="6" fill="#ffffff"/>
+      <rect x="36" y="26" width="6" height="6" fill="#ffffff"/>
+      <rect x="24" y="28" width="4" height="4" fill="#1C1C1C"/>
+      <rect x="38" y="28" width="4" height="4" fill="#1C1C1C"/>
+      {/* Pupils shine */}
+      <rect x="25" y="28" width="2" height="2" fill="#ffffff" opacity="0.8"/>
+      <rect x="39" y="28" width="2" height="2" fill="#ffffff" opacity="0.8"/>
+      {/* Mouth */}
+      <rect x="25" y="36" width="14" height="3" fill={gender==='F'?'#E74C3C':'#7B241C'}/>
+      <rect x="26" y="37" width="12" height="2" fill="#C0392B"/>
+      {/* Nose */}
+      <rect x="30" y="32" width="4" height="2" fill={skin} style={{filter:'brightness(0.85)'}}/>
+
+      {/* Badge */}
+      {hasBadge && (
+        <text x="46" y="52" fontSize="10" textAnchor="middle">
+          {accessories.includes('badge1')?'🏅':'⭐'}
+        </text>
+      )}
+
+      {/* Musical note accessory (always) */}
+      <text x="6" y="28" fontSize="9" opacity="0.7">♪</text>
+      <text x="52" y="38" fontSize="7" opacity="0.5">♫</text>
+    </svg>
+  );
+}
+
+// Character + Shop page
+function CharacterPage({ stats }) {
+  const [char,    setChar]    = useState(loadChar);
+  const [tab,     setTab]     = useState('char'); // char | shop
+  const [bought,  setBought]  = useState(false);
+
+  const keys = stats.keys || 0;
+  const xpInfo = xpToNextLevel(stats.totalXp||0);
+  const levelTitle = LEVEL_TITLES[Math.min(xpInfo.lv, LEVEL_TITLES.length-1)];
+
+  function saveCharLocal(c) { setChar(c); saveChar(c); }
+
+  function buyItem(item) {
+    if (keys < item.cost) return;
+    if ((char.accessories||[]).includes(item.id)) return;
+    // Deduct keys from stats (via updateStats) — here we just track in char
+    const newAcc = [...(char.accessories||[]), item.id];
+    saveCharLocal({ ...char, accessories: newAcc });
+    // Keys are in stats; we can't easily deduct here without updateStats
+    // So we note it in char as a separate field
+    updateStats(s => ({ ...s, keys: Math.max(0,(s.keys||0)-item.cost) }));
+    setBought(item.name);
+    setTimeout(()=>setBought(false),2000);
+  }
+
+  function equipItem(item) {
+    if (item.type==='hat') {
+      const isHat = ['hat1','hat2'];
+      const equipped = char.accessories||[];
+      // Remove other hats first
+      const without = equipped.filter(a=>!isHat.includes(a));
+      const isAlreadyEquipped = equipped.includes(item.id) && !without.includes(item.id);
+      saveCharLocal({...char, accessories: isAlreadyEquipped ? without : [...without, item.id]});
+    } else if (item.type==='aura') {
+      const isAura=['aura1','aura2'];
+      const equipped=char.accessories||[];
+      const without=equipped.filter(a=>!isAura.includes(a));
+      const already=equipped.includes(item.id)&&!without.includes(item.id);
+      saveCharLocal({...char,accessories:already?without:[...without,item.id]});
+    } else if (item.type==='outfit') {
+      const idx=SHOP_ITEMS.filter(i=>i.type==='outfit').findIndex(i=>i.id===item.id);
+      saveCharLocal({...char,outfitIdx:idx+1});
+    }
+  }
+
+  const owned = item => (char.accessories||[]).includes(item.id);
+  const currentAura = (char.accessories||[]).find(a=>a.startsWith('aura'));
+
+  return (
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Tab header */}
+      <div style={{display:'flex',borderBottom:'1px solid rgba(255,255,255,0.07)',flexShrink:0,background:'rgba(13,11,30,0.6)'}}>
+        {[['char','👤 Personnage'],['shop','🛍 Boutique']].map(([id,label])=>(
+          <button key={id} onClick={()=>setTab(id)}
+            style={{flex:1,padding:'.65rem .25rem',background:'none',border:'none',
+              borderBottom:tab===id?'2px solid #A78BFA':'2px solid transparent',
+              color:tab===id?'#A78BFA':'rgba(255,255,255,0.4)',
+              cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.04em',transition:'all 0.2s',
+              display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── CHARACTER TAB ─────────────────────────────────────────────────────── */}
+      {tab==='char' && (
+        <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+
+          {/* XP Bar + Level */}
+          <div style={{padding:'1.1rem',background:'linear-gradient(135deg,rgba(139,92,246,0.12),rgba(167,139,250,0.08))',border:'1px solid rgba(139,92,246,0.3)',borderRadius:16}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.75rem'}}>
+              <div>
+                <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:2}}>NIVEAU {xpInfo.lv}</div>
+                <div style={{fontSize:18,fontWeight:'bold',color:'#A78BFA',fontFamily:'Georgia,serif'}}>{levelTitle}</div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                <div style={{fontSize:11,fontFamily:'monospace',color:'rgba(167,139,250,0.7)',marginBottom:2}}>XP</div>
+                <div style={{fontSize:14,fontWeight:'bold',fontFamily:'monospace',color:'#A78BFA'}}>{xpInfo.current}/{xpInfo.next}</div>
+              </div>
+            </div>
+            <div style={{height:8,background:'rgba(255,255,255,0.08)',borderRadius:4,overflow:'hidden'}}>
+              <div style={{height:'100%',width:`${xpInfo.pct}%`,background:'linear-gradient(90deg,#8B5CF6,#A78BFA,#C39BD3)',borderRadius:4,transition:'width 0.6s ease',boxShadow:'0 0 8px rgba(139,92,246,0.5)'}}/>
+            </div>
+            <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',marginTop:5,textAlign:'right'}}>Gagne de l'XP en faisant des exercices !</div>
+          </div>
+
+          {/* Character display */}
+          <div style={{display:'flex',gap:'1.25rem',alignItems:'flex-start'}}>
+            <div style={{flex:0,display:'flex',flexDirection:'column',alignItems:'center',gap:8}}>
+              <div style={{background:'linear-gradient(180deg,rgba(139,92,246,0.08),rgba(0,0,0,0.3))',border:'1px solid rgba(139,92,246,0.2)',borderRadius:16,padding:'1rem 1.5rem',minWidth:140,textAlign:'center'}}>
+                <PixelCharacter
+                  gender={char.gender||'M'}
+                  skinTone={char.skinTone||0}
+                  hairColor={char.hairColor||0}
+                  outfitIdx={char.outfitIdx||0}
+                  accessories={char.accessories||[]}
+                  aura={currentAura}
+                  size={120}
+                />
+              </div>
+              {/* Gender toggle */}
+              <div style={{display:'flex',gap:6}}>
+                {['M','F'].map(g=>(
+                  <button key={g} onClick={()=>saveCharLocal({...char,gender:g})}
+                    style={{padding:'.4rem .9rem',background:char.gender===g?'rgba(139,92,246,0.2)':'rgba(255,255,255,0.05)',border:`1px solid ${char.gender===g?'#A78BFA':'rgba(255,255,255,0.15)'}`,borderRadius:8,cursor:'pointer',color:char.gender===g?'#A78BFA':'rgba(255,255,255,0.5)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s'}}>
+                    {g==='M'?'♂ H':'♀ F'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{flex:1,display:'flex',flexDirection:'column',gap:'1rem'}}>
+              {/* Skin tone */}
+              <div>
+                <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>TEINTE DE PEAU</div>
+                <div style={{display:'flex',gap:6}}>
+                  {SKIN_TONES.map((c,i)=>(
+                    <button key={i} onClick={()=>saveCharLocal({...char,skinTone:i})}
+                      style={{width:28,height:28,borderRadius:'50%',background:c,border:`2px solid ${char.skinTone===i?'#A78BFA':'rgba(255,255,255,0.2)'}`,cursor:'pointer',transition:'all 0.2s',transform:char.skinTone===i?'scale(1.15)':'scale(1)'}}/>
+                  ))}
+                </div>
+              </div>
+              {/* Hair color */}
+              <div>
+                <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>COULEUR DES CHEVEUX</div>
+                <div style={{display:'flex',gap:6}}>
+                  {HAIR_COLORS.map((c,i)=>(
+                    <button key={i} onClick={()=>saveCharLocal({...char,hairColor:i})}
+                      style={{width:28,height:28,borderRadius:'50%',background:c,border:`2px solid ${char.hairColor===i?'#A78BFA':'rgba(255,255,255,0.2)'}`,cursor:'pointer',transition:'all 0.2s',transform:char.hairColor===i?'scale(1.15)':'scale(1)'}}/>
+                  ))}
+                </div>
+              </div>
+              {/* Owned items quick equip */}
+              {(char.accessories||[]).length>0 && (
+                <div>
+                  <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>ÉQUIPEMENT</div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                    {SHOP_ITEMS.filter(item=>owned(item)).map(item=>(
+                      <div key={item.id} style={{padding:'3px 8px',background:`${item.color}15`,border:`1px solid ${item.color}40`,borderRadius:8,fontSize:13}}
+                        title={item.name}>{item.icon}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Stats perso */}
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+            <div style={{fontSize:10,color:'rgba(255,255,255,0.4)',fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.75rem'}}>STATISTIQUES DU MUSICIEN</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+              {[
+                {label:'XP total',      value:stats.totalXp||0,              color:'#A78BFA'},
+                {label:'Niveau',        value:xpInfo.lv,                      color:'#8B5CF6'},
+                {label:'Heures pratique',value:`${Math.floor(char.practicedHours||0)}h`,color:'#82E0AA'},
+                {label:'Clés 🗝️',        value:keys,                           color:'#F7DC6F'},
+              ].map((s,i)=>(
+                <div key={i} style={{padding:'.65rem',background:`${s.color}08`,border:`0.5px solid ${s.color}25`,borderRadius:10,textAlign:'center'}}>
+                  <div style={{fontSize:18,fontWeight:'bold',color:s.color,fontFamily:'Georgia,serif'}}>{s.value}</div>
+                  <div style={{fontSize:9,opacity:.45,fontFamily:'monospace',letterSpacing:'.04em'}}>{s.label.toUpperCase()}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {bought&&<div style={{textAlign:'center',padding:'.75rem',background:'rgba(130,224,170,0.1)',border:'1px solid rgba(130,224,170,0.3)',borderRadius:10,color:'#82E0AA',fontFamily:'monospace',fontSize:12,animation:'fadeIn 0.3s ease'}}>✓ {bought} acheté !</div>}
+        </div>
+      )}
+
+      {/* ── SHOP TAB ──────────────────────────────────────────────────────────── */}
+      {tab==='shop' && (
+        <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.12em'}}>BOUTIQUE</div>
+            <div style={{display:'flex',alignItems:'center',gap:5,padding:'.35rem .8rem',background:'rgba(247,220,111,0.12)',border:'1px solid rgba(247,220,111,0.3)',borderRadius:10}}>
+              <span style={{fontSize:13}}>🗝️</span>
+              <span style={{fontSize:14,fontWeight:'bold',color:'#F7DC6F',fontFamily:'monospace'}}>{keys}</span>
+              <span style={{fontSize:9,opacity:.5,fontFamily:'monospace'}}>clés</span>
+            </div>
+          </div>
+
+          <div style={{padding:'.75rem',background:'rgba(139,92,246,0.06)',border:'1px solid rgba(139,92,246,0.18)',borderRadius:12}}>
+            <p style={{fontSize:12,opacity:.6,margin:0,fontFamily:'Georgia,serif'}}>Gagne des clés en complétant les défis quotidiens. Achète des accessoires pour personnaliser ton musicien !</p>
+          </div>
+
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+            {SHOP_ITEMS.map(item=>{
+              const isOwned = owned(item);
+              const canBuy  = !isOwned && keys >= item.cost;
+              const equipped= (char.accessories||[]).includes(item.id);
+              return(
+                <div key={item.id} style={{padding:'.9rem',background:isOwned?`${item.color}10`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isOwned?item.color+'40':'rgba(255,255,255,0.1)'}`,borderRadius:14,display:'flex',flexDirection:'column',gap:7,transition:'all 0.2s'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                    <span style={{fontSize:28}}>{item.icon}</span>
+                    <div style={{textAlign:'right'}}>
+                      {isOwned
+                        ? <span style={{fontSize:9,fontFamily:'monospace',color:item.color,padding:'2px 6px',background:`${item.color}15`,borderRadius:6}}>POSSÉDÉ</span>
+                        : <span style={{fontSize:11,fontFamily:'monospace',color:canBuy?'#F7DC6F':'rgba(255,255,255,0.3)',fontWeight:'bold'}}>🗝️ {item.cost}</span>
+                      }
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{fontSize:13,fontWeight:'bold',color:isOwned?item.color:'rgba(255,255,255,0.7)',fontFamily:'Georgia,serif',marginBottom:3}}>{item.name}</div>
+                    <div style={{fontSize:10,opacity:.45,fontFamily:'monospace'}}>{item.desc}</div>
+                  </div>
+                  {isOwned ? (
+                    <button onClick={()=>equipItem(item)}
+                      style={{padding:'.45rem',background:equipped?`${item.color}20`:'rgba(255,255,255,0.05)',border:`1px solid ${equipped?item.color:'rgba(255,255,255,0.15)'}`,borderRadius:8,cursor:'pointer',color:equipped?item.color:'rgba(255,255,255,0.5)',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',transition:'all 0.2s'}}>
+                      {equipped?'✓ ÉQUIPÉ':'ÉQUIPER'}
+                    </button>
+                  ) : (
+                    <button onClick={()=>canBuy&&buyItem(item)} disabled={!canBuy}
+                      style={{padding:'.45rem',background:canBuy?`${item.color}15`:'rgba(255,255,255,0.03)',border:`1px solid ${canBuy?item.color:'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:canBuy?'pointer':'not-allowed',color:canBuy?item.color:'rgba(255,255,255,0.25)',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',transition:'all 0.2s'}}>
+                      {keys < item.cost ? `Manque ${item.cost-keys} 🗝️` : 'ACHETER'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompetencesPage({skills,instrument,setInstrument,stats,onNavigate}){
   const [editGoals, setEditGoals] = useState(false);
   const streak = computeStreak(stats);
@@ -6935,9 +7493,9 @@ export default function ChordApp(){
   const [showTip,setShowTip]=useState(false);
   const [showDefis,setShowDefis]=useState(false);
   const [stats,setStats]=useState(()=>resetDailyIfNeeded(loadStats()));
-  const [themeId,setThemeId]=useState(()=>{ try{return localStorage.getItem('cs_theme')||'cosmos';}catch{return'cosmos';} });
+  const [themeId,setThemeId]=useState(()=>{ try{return localStorage.getItem('cs_theme')||'obsidian';}catch{return'obsidian';} });
   const [pageKey,setPageKey]=useState(0);
-  const theme = THEMES[themeId] || THEMES.cosmos;
+  const theme = THEMES[themeId] || THEMES.obsidian;
 
   // Mascotte
   const [showMascotte, setShowMascotte] = useState(false);
@@ -7017,14 +7575,15 @@ export default function ChordApp(){
       @keyframes streakPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
       *{box-sizing:border-box} button{cursor:pointer}
       ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.15);border-radius:3px}
-      ${theme.css||''}
+      input,textarea{outline:none;font-family:inherit;}
+      
     `}</style>
 
-    {/* Background orbs */}
+    {/* Background orbs — subtiles, basées sur l'accent ambre */}
     <div style={{position:'fixed',inset:0,pointerEvents:'none',overflow:'hidden',zIndex:0}}>
-      <div style={{position:'absolute',top:'-15%',left:'-10%',width:420,height:420,borderRadius:'50%',background:`radial-gradient(circle, rgba(139,92,246,0.14) 0%, transparent 70%)`,animation:'orbFloat 12s ease-in-out infinite'}}/>
-      <div style={{position:'absolute',bottom:'-10%',right:'-8%',width:380,height:380,borderRadius:'50%',background:`radial-gradient(circle, rgba(59,130,246,0.12) 0%, transparent 70%)`,animation:'orbFloat 16s ease-in-out infinite reverse'}}/>
-      <div style={{position:'absolute',top:'40%',right:'-5%',width:260,height:260,borderRadius:'50%',background:`radial-gradient(circle, rgba(236,72,153,0.08) 0%, transparent 70%)`,animation:'orbFloat 10s ease-in-out infinite 3s'}}/>
+      <div style={{position:'absolute',top:'-15%',left:'-10%',width:420,height:420,borderRadius:'50%',background:'radial-gradient(circle, rgba(232,168,87,0.07) 0%, transparent 70%)',animation:'orbFloat 12s ease-in-out infinite'}}/>
+      <div style={{position:'absolute',bottom:'-10%',right:'-8%',width:380,height:380,borderRadius:'50%',background:'radial-gradient(circle, rgba(200,134,74,0.05) 0%, transparent 70%)',animation:'orbFloat 16s ease-in-out infinite reverse'}}/>
+      <div style={{position:'absolute',top:'40%',right:'-5%',width:260,height:260,borderRadius:'50%',background:'radial-gradient(circle, rgba(232,168,87,0.04) 0%, transparent 70%)',animation:'orbFloat 10s ease-in-out infinite 3s'}}/>
     </div>
 
     {/* Header */}
