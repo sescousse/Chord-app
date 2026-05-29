@@ -3173,6 +3173,725 @@ function RythmeSection() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── ANALYSE DE GRILLE ─────────────────────────────────────════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Parse chord input like "Am F C G" or "Dm7 G7 Cmaj7"
+function parseChordInput(input) {
+  const tokens = input.trim().split(/[\s,\-|]+/).filter(Boolean);
+  return tokens.map(tok => {
+    // Try to match root + suffix
+    const roots = ['C#','Db','D#','Eb','F#','Gb','G#','Ab','A#','Bb','C','D','E','F','G','A','B'];
+    let root = null, suffix = '';
+    for (const r of roots) {
+      if (tok.startsWith(r)) { root = r; suffix = tok.slice(r.length); break; }
+    }
+    if (!root) return null;
+    // Map suffix to CHORD_TYPES key
+    const suffixMap = {
+      '':'Majeures','m':'Mineures','min':'Mineures','M':'Majeures',
+      '7':'Dom. 7','maj7':'Maj. 7','M7':'Maj. 7','Maj7':'Maj. 7',
+      'm7':'Min. 7','min7':'Min. 7',
+      'mM7':'MinMaj. 7','mMaj7':'MinMaj. 7',
+    };
+    const type = suffixMap[suffix] || suffixMap[suffix.toLowerCase()] || 'Majeures';
+    return { root, type, raw: tok };
+  }).filter(Boolean);
+}
+
+// Detect likely key from a chord list
+function detectKey(chords) {
+  const scores = {};
+  for (const key of CHROMATIC) {
+    const keySemi = CHROMATIC.indexOf(key);
+    const majorScale = [0,2,4,5,7,9,11].map(s=>(keySemi+s)%12);
+    let score = 0;
+    for (const ch of chords) {
+      const ri = CHROMATIC.indexOf(ch.root);
+      if (majorScale.includes(ri)) score += 1;
+      // Bonus for I, IV, V
+      const deg = (ri - keySemi + 12) % 12;
+      if ([0,5,7].includes(deg)) score += 0.5;
+    }
+    scores[key] = score;
+    // Also check minor (natural minor = 0,2,3,5,7,8,10)
+    const minorScale = [0,2,3,5,7,8,10].map(s=>(keySemi+s)%12);
+    let minScore = 0;
+    for (const ch of chords) {
+      const ri = CHROMATIC.indexOf(ch.root);
+      if (minorScale.includes(ri)) minScore += 1;
+      const deg = (ri - keySemi + 12) % 12;
+      if ([0,5,7].includes(deg)) minScore += 0.5;
+    }
+    scores[key+'m'] = minScore * 0.95; // slight malus to prefer major
+  }
+  const sorted = Object.entries(scores).sort((a,b)=>b[1]-a[1]);
+  return sorted.slice(0,3).map(([k,s])=>({key:k,score:s}));
+}
+
+// Get diatonic function of a chord in a key
+function getChordFunction(chordRoot, keyRoot, isMajor=true) {
+  const keyS = CHROMATIC.indexOf(keyRoot);
+  const chS  = CHROMATIC.indexOf(chordRoot);
+  const deg  = (chS - keyS + 12) % 12;
+  const majorDegs = {0:'I',2:'ii',4:'iii',5:'IV',7:'V',9:'vi',11:'vii°'};
+  const minorDegs = {0:'i',2:'ii°',3:'III',5:'iv',7:'v',8:'VI',10:'VII'};
+  const degs = isMajor ? majorDegs : minorDegs;
+  return degs[deg] || null;
+}
+
+// Mode suggestions per chord type and function
+function getModeForChord(chordRoot, fn, type) {
+  if (type==='Dom. 7' || type==='Majeures' && fn==='V') return 'Mixolydien';
+  if (type==='Mineures' || type==='Min. 7') return fn==='ii'||fn==='ii°' ? 'Dorien' : 'Éolien';
+  if (type==='Majeures' && fn==='IV') return 'Lydien';
+  if (type==='Maj. 7' && fn==='I') return 'Ionien (gamme majeure)';
+  if (type==='Majeures' && fn==='I') return 'Ionien (gamme majeure)';
+  return 'Pentatonique';
+}
+
+const CARNET_KEY = 'cs_carnet_v1';
+function loadCarnet(){try{return JSON.parse(localStorage.getItem(CARNET_KEY)||'[]');}catch{return[];}}
+function saveCarnet(c){try{localStorage.setItem(CARNET_KEY,JSON.stringify(c));}catch{}}
+
+function AnalyseGrille() {
+  const [input,    setInput]    = useState('Am F C G');
+  const [chords,   setChords]   = useState([]);
+  const [keys,     setKeys]     = useState([]);
+  const [selKey,   setSelKey]   = useState(null);
+  const [playing,  setPlaying]  = useState(false);
+  const [saved,    setSaved]    = useState(false);
+
+  function analyse() {
+    const parsed = parseChordInput(input);
+    if (parsed.length === 0) return;
+    setChords(parsed);
+    const detected = detectKey(parsed);
+    setKeys(detected);
+    setSelKey(detected[0]?.key || null);
+    setSaved(false);
+  }
+
+  async function playAll() {
+    if (playing || chords.length===0) return;
+    setPlaying(true);
+    for (const ch of chords) {
+      const ri = CHROMATIC.indexOf(ch.root);
+      if (ri>=0) playChordArp(CHORD_TYPES[ch.type].formula.map(f=>ri+f+4*12));
+      await new Promise(r=>setTimeout(r,1200));
+    }
+    setPlaying(false);
+  }
+
+  function saveToCarnet() {
+    const entry = {
+      id: Date.now(),
+      title: `Grille analysée — ${selKey||'?'}`,
+      date: todayStr(),
+      type: 'analyse',
+      chords: chords.map(c=>c.raw),
+      key: selKey,
+      notes: '',
+    };
+    const c = loadCarnet();
+    saveCarnet([entry,...c]);
+    setSaved(true);
+  }
+
+  const isMajor = selKey && !selKey.endsWith('m');
+  const keyRoot = selKey?.replace('m','') || null;
+
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <div>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:4}}>Analyse de Grille</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>ENTREZ UNE SUITE D'ACCORDS · ANALYSE AUTOMATIQUE</p>
+      </div>
+
+      {/* Input */}
+      <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+        <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>SAISIR LES ACCORDS (séparés par espace, virgule ou tiret)</div>
+        <input value={input} onChange={e=>setInput(e.target.value)}
+          onKeyDown={e=>e.key==='Enter'&&analyse()}
+          placeholder="Ex: Am F C G  •  Dm7 G7 Cmaj7  •  Am Em F G"
+          style={{width:'100%',padding:'.7rem .9rem',background:'rgba(255,255,255,0.05)',border:'1.5px solid rgba(232,168,87,0.3)',borderRadius:10,color:'rgba(255,255,255,0.85)',fontSize:13,fontFamily:'monospace',outline:'none',boxSizing:'border-box',marginBottom:8}}/>
+        <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',marginBottom:8}}>Formats reconnus : C, Cm, C7, Cmaj7, Cm7, CmM7</div>
+        <button onClick={analyse}
+          style={{width:'100%',padding:'.75rem',background:'rgba(232,168,87,0.15)',border:'1.5px solid #E8A857',color:'#E8A857',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.1em'}}>
+          🔍 ANALYSER
+        </button>
+      </div>
+
+      {chords.length>0 && (
+        <>
+          {/* Tonalité probable */}
+          <div style={{padding:'1rem',background:'rgba(130,224,170,0.07)',border:'1px solid rgba(130,224,170,0.2)',borderRadius:14}}>
+            <div style={{fontSize:10,color:'#82E0AA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>TONALITÉ PROBABLE</div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:'.75rem'}}>
+              {keys.map(({key,score},i)=>(
+                <button key={key} onClick={()=>setSelKey(key)}
+                  style={{padding:'.5rem 1rem',background:selKey===key?'rgba(130,224,170,0.2)':'rgba(255,255,255,0.05)',border:`1.5px solid ${selKey===key?'#82E0AA':'rgba(255,255,255,0.15)'}`,borderRadius:9,cursor:'pointer',color:selKey===key?'#82E0AA':'rgba(255,255,255,0.55)',fontFamily:'monospace',fontSize:13,fontWeight:'bold',transition:'all 0.2s'}}>
+                  {key}{i===0?' ★':''}
+                </button>
+              ))}
+            </div>
+            <div style={{fontSize:11,opacity:.5,fontFamily:'monospace'}}>Clique pour changer la tonalité de référence</div>
+          </div>
+
+          {/* Chord analysis */}
+          <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.75rem'}}>
+              <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em'}}>ANALYSE DES ACCORDS</div>
+              <button onClick={playAll} disabled={playing}
+                style={{padding:'.35rem .8rem',background:'rgba(232,168,87,0.12)',border:'1px solid rgba(232,168,87,0.4)',color:'#E8A857',borderRadius:8,cursor:playing?'default':'pointer',fontSize:10,fontFamily:'monospace',fontWeight:'bold'}}>
+                {playing?'▶…':'🔊 JOUER'}
+              </button>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:7}}>
+              {chords.map((ch,i)=>{
+                const ri = CHROMATIC.indexOf(ch.root);
+                const fn = keyRoot ? getChordFunction(ch.root, keyRoot, isMajor) : null;
+                const mode = fn ? getModeForChord(ch.root, fn, ch.type) : 'Pentatonique';
+                // Check if borrowed
+                const majorScale = keyRoot ? [0,2,4,5,7,9,11].map(s=>(CHROMATIC.indexOf(keyRoot)+s)%12) : [];
+                const isBorrowed = keyRoot && isMajor && !majorScale.includes(ri);
+                const nc = NOTE_COLORS[ch.root]||'#E8A857';
+                return(
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:10,padding:'.65rem .85rem',background:'rgba(255,255,255,0.03)',border:`0.5px solid ${nc}25`,borderRadius:10}}>
+                    <div style={{width:28,height:28,borderRadius:'50%',background:`${nc}20`,border:`1.5px solid ${nc}50`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontFamily:'monospace',color:'rgba(255,255,255,0.4)',flexShrink:0}}>{i+1}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:2}}>
+                        <span style={{fontSize:15,fontWeight:'bold',color:nc,fontFamily:'monospace'}}>{ch.raw}</span>
+                        {fn && <span style={{fontSize:11,fontFamily:'monospace',color:nc,padding:'1px 6px',background:`${nc}15`,borderRadius:5}}>{fn}</span>}
+                        {isBorrowed && <span style={{fontSize:9,fontFamily:'monospace',color:'#F1948A',padding:'1px 5px',background:'rgba(241,148,138,0.12)',borderRadius:5}}>emprunté</span>}
+                      </div>
+                      <div style={{fontSize:10,opacity:.45,fontFamily:'monospace'}}>Improvise : {mode}</div>
+                    </div>
+                    <button onClick={()=>{if(ri>=0)playChordArp(CHORD_TYPES[ch.type].formula.map(f=>ri+f+4*12));}}
+                      style={{background:`${nc}12`,border:`1px solid ${nc}30`,color:nc,padding:'.25rem .55rem',borderRadius:6,cursor:'pointer',fontSize:10,fontFamily:'monospace',flexShrink:0}}>♪</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Borrowed chords summary */}
+          {keyRoot && chords.some(ch=>{
+            const ri=CHROMATIC.indexOf(ch.root);
+            const majorScale=[0,2,4,5,7,9,11].map(s=>(CHROMATIC.indexOf(keyRoot)+s)%12);
+            return isMajor && !majorScale.includes(ri);
+          }) && (
+            <div style={{padding:'.85rem 1rem',background:'rgba(241,148,138,0.07)',border:'1px solid rgba(241,148,138,0.2)',borderRadius:12}}>
+              <div style={{fontSize:9,color:'#F1948A',fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.4rem'}}>ACCORDS EMPRUNTÉS DÉTECTÉS</div>
+              <p style={{fontSize:12,opacity:.68,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>Ces accords ne font pas partie de la gamme de {selKey}. Ils sont probablement empruntés au mode mineur ou à une autre tonalité — ce qui crée des couleurs inattendues et expressives.</p>
+            </div>
+          )}
+
+          {/* Save to carnet */}
+          <button onClick={saveToCarnet} disabled={saved}
+            style={{width:'100%',padding:'.75rem',background:saved?'rgba(130,224,170,0.12)':'rgba(255,255,255,0.05)',border:`1.5px solid ${saved?'#82E0AA':'rgba(255,255,255,0.15)'}`,color:saved?'#82E0AA':'rgba(255,255,255,0.5)',borderRadius:10,cursor:saved?'default':'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.3s'}}>
+            {saved?'✓ Sauvegardé dans le carnet':'📒 Sauvegarder dans le carnet'}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── SOLFÈGE CHANTÉ ────────────────────────────────════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+
+const SOLFEGE_NOTES = ['C4','D4','E4','F4','G4','A4','B4','C5','D5','E5'];
+const NOTE_Y_STAFF  = {C4:80,D4:72,E4:64,F4:58,G4:50,A4:42,B4:34,C5:26,D5:18,E5:10};
+
+function SolfegeChante() {
+  const [targetNote, setTargetNote] = useState('C4');
+  const [score,      setScore]      = useState({correct:0,total:0});
+  const [feedback,   setFeedback]   = useState(null); // null|'correct'|'wrong'|'listening'
+  const [detNote,    setDetNote]    = useState(null);
+  const mic = useMicrophone();
+
+  function newNote() {
+    const n = SOLFEGE_NOTES[Math.floor(Math.random()*SOLFEGE_NOTES.length)];
+    setTargetNote(n); setFeedback(null); setDetNote(null);
+  }
+
+  function playTarget() {
+    const semi = CHROMATIC.indexOf(targetNote.replace(/[45]/,''));
+    const octave = targetNote.includes('5') ? 5 : 4;
+    playNote(semi + octave*12, 0, 1.2);
+  }
+
+  // Watch mic for matching note
+  useEffect(()=>{
+    if (!mic.isActive || feedback==='correct') return;
+    const det = mic.detectedNotes[0];
+    setDetNote(det||null);
+    if (det) {
+      const expected = targetNote.replace(/[45]/,'');
+      if (det === expected) {
+        setFeedback('correct');
+        setScore(s=>({correct:s.correct+1,total:s.total+1}));
+        setTimeout(()=>newNote(), 1200);
+      }
+    }
+  }, [mic.detectedNotes]);
+
+  const noteBaseName = targetNote.replace(/[45]/,'');
+  const NOTE_NAMES_FR = {C:'Do',D:'Ré',E:'Mi',F:'Fa',G:'Sol',A:'La',B:'Si'};
+  const noteFr = NOTE_NAMES_FR[noteBaseName]||noteBaseName;
+  const y = NOTE_Y_STAFF[targetNote] || 50;
+  const W=200, H=110;
+  const lineY=[80,72,64,56,48];
+
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:4}}>Solfège Chanté</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>CHANTE LA NOTE AFFICHÉE</p>
+        </div>
+        <span style={{fontSize:12,fontFamily:'monospace',color:'#82E0AA'}}>{score.correct}/{score.total}</span>
+      </div>
+
+      {/* Note display */}
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'1.5rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:16}}>
+        <div style={{fontSize:10,opacity:.35,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'1rem'}}>CHANTE CETTE NOTE</div>
+        <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{background:'#faf9f4',borderRadius:10,marginBottom:'1rem'}}>
+          {lineY.map((ly,i)=><line key={i} x1={15} y1={ly} x2={W-10} y2={ly} stroke="#555" strokeWidth={0.8}/>)}
+          <text x={17} y={78} fontSize={36} fill="#555" fontFamily="serif">𝄞</text>
+          {y===80&&<line x1={88} x2={104} y1={80} y2={80} stroke="#555" strokeWidth={0.8}/>}
+          <ellipse cx={96} cy={y} rx={7} ry={5}
+            fill={feedback==='correct'?'#82E0AA':feedback==='wrong'?'#F1948A':'#1a1a1a'}
+            transform={`rotate(-15,96,${y})`}
+            style={{transition:'fill 0.3s'}}/>
+          <line x1={102.5} y1={y} x2={102.5} y2={y-26} stroke={feedback==='correct'?'#82E0AA':'#1a1a1a'} strokeWidth={1.5}/>
+        </svg>
+        <div style={{fontSize:32,fontWeight:'bold',color:'#E8A857',fontFamily:'Georgia,serif',marginBottom:4}}>{noteFr}</div>
+        <button onClick={playTarget}
+          style={{padding:'.45rem 1.1rem',background:'rgba(232,168,87,0.12)',border:'1px solid rgba(232,168,87,0.4)',color:'#E8A857',borderRadius:9,cursor:'pointer',fontSize:11,fontFamily:'monospace'}}>
+          🔊 Écouter la note
+        </button>
+      </div>
+
+      {/* Mic */}
+      <MicDetector mic={mic}/>
+
+      {/* Detected note */}
+      {mic.isActive && (
+        <div style={{padding:'.85rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,textAlign:'center'}}>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.4rem'}}>NOTE DÉTECTÉE</div>
+          <div style={{fontSize:28,fontWeight:'bold',fontFamily:'monospace',color:
+            detNote===noteBaseName?'#82E0AA':detNote?'#F1948A':'rgba(255,255,255,0.25)'
+          }}>{detNote?NOTE_NAMES_FR[detNote]||detNote:'—'}</div>
+          {feedback==='correct'&&<div style={{fontSize:13,color:'#82E0AA',fontFamily:'Georgia,serif',marginTop:4,animation:'fadeIn 0.3s ease'}}>✓ Parfait !</div>}
+        </div>
+      )}
+
+      {/* Manual buttons fallback */}
+      {!mic.isActive && (
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          <div style={{fontSize:10,opacity:.35,fontFamily:'monospace',textAlign:'center'}}>OU SÉLECTIONNE LA NOTE QUE TU AS CHANTÉE</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',justifyContent:'center'}}>
+            {SOLFEGE_NOTES.slice(0,8).map(n=>{
+              const nb=n.replace(/[45]/,'');
+              const isTarget=nb===noteBaseName;
+              const nc=NOTE_COLORS[nb]||'#E8A857';
+              return(
+                <button key={n} onClick={()=>{
+                  const ok=nb===noteBaseName;
+                  setFeedback(ok?'correct':'wrong');
+                  setScore(s=>({correct:s.correct+(ok?1:0),total:s.total+1}));
+                  if(ok) setTimeout(()=>newNote(),900);
+                }}
+                  style={{padding:'.5rem .9rem',background:`${nc}15`,border:`1.5px solid ${nc}40`,color:nc,borderRadius:9,cursor:'pointer',fontSize:13,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.2s'}}>
+                  {NOTE_NAMES_FR[nb]||nb}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Skip */}
+      <button onClick={()=>{setScore(s=>({...s,total:s.total+1}));newNote();}}
+        style={{padding:'.6rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:9,cursor:'pointer',color:'rgba(255,255,255,0.35)',fontSize:11,fontFamily:'monospace'}}>
+        PASSER →
+      </button>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── ÉCOUTE ACTIVE ─────────────────────────────────────════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+
+const ECOUTE_QUESTIONS = [
+  {
+    id:'majmin', title:'Majeur ou mineur ?',
+    generate() {
+      const root = ROOT_NOTES[Math.floor(Math.random()*ROOT_NOTES.length)];
+      const isMaj = Math.random()>0.5;
+      const type = isMaj?'Majeures':'Mineures';
+      const ri = CHROMATIC.indexOf(root);
+      return {
+        root,type,
+        play: ()=>playChordArp(CHORD_TYPES[type].formula.map(f=>ri+f+4*12)),
+        answer: isMaj?'Majeur':'Mineur',
+        options:['Majeur','Mineur'],
+        explanation: isMaj
+          ? 'L\'accord majeur a une tierce majeure (4 demi-tons) — son lumineux et stable.'
+          : 'L\'accord mineur a une tierce mineure (3 demi-tons) — son sombre et expressif.',
+      };
+    }
+  },
+  {
+    id:'cadence', title:'Quelle cadence ?',
+    generate() {
+      const cadences = [
+        {name:'Parfaite (V→I)', chords:[['G','Majeures'],['C','Majeures']]},
+        {name:'Plagale (IV→I)', chords:[['F','Majeures'],['C','Majeures']]},
+        {name:'Rompue (V→vi)', chords:[['G','Majeures'],['A','Mineures']]},
+      ];
+      const cad = cadences[Math.floor(Math.random()*cadences.length)];
+      return {
+        play: async()=>{for(const[r,t]of cad.chords){const ri=CHROMATIC.indexOf(r);playChordArp(CHORD_TYPES[t].formula.map(f=>ri+f+4*12));await new Promise(res=>setTimeout(res,1200));}},
+        answer: cad.name,
+        options: cadences.map(c=>c.name),
+        explanation: `La ${cad.name} a un effet émotionnel distinct. Avec de la pratique tu l'identifieras instinctivement.`,
+      };
+    }
+  },
+  {
+    id:'nbaccords', title:'Combien d\'accords ?',
+    generate() {
+      const n = Math.floor(Math.random()*3)+2; // 2,3,4
+      const progs = [
+        [['C','Majeures'],['G','Majeures']],
+        [['C','Majeures'],['F','Majeures'],['G','Dom. 7']],
+        [['C','Majeures'],['A','Mineures'],['F','Majeures'],['G','Dom. 7']],
+      ];
+      const prog = progs[n-2];
+      return {
+        play: async()=>{for(const[r,t]of prog){const ri=CHROMATIC.indexOf(r);playChordArp(CHORD_TYPES[t].formula.map(f=>ri+f+4*12));await new Promise(res=>setTimeout(res,1100));}},
+        answer: String(n),
+        options: ['2','3','4'],
+        explanation: `Il y avait ${n} accord${n>1?'s':''} dans cette progression.`,
+      };
+    }
+  },
+  {
+    id:'interval', title:'Quel intervalle ?',
+    generate() {
+      const intervals = [
+        {name:'Octave',semi:12},{name:'Quinte',semi:7},{name:'Quarte',semi:5},
+        {name:'Tierce majeure',semi:4},{name:'Tierce mineure',semi:3},
+      ];
+      const root = ROOT_NOTES[Math.floor(Math.random()*6)];
+      const ri = CHROMATIC.indexOf(root);
+      const intv = intervals[Math.floor(Math.random()*intervals.length)];
+      return {
+        play: ()=>{playNote(ri+4*12,0,1);setTimeout(()=>playNote(ri+intv.semi+4*12,0,1),700);},
+        answer: intv.name,
+        options: intervals.map(i=>i.name),
+        explanation: `L'intervalle était une ${intv.name} (${intv.semi} demi-ton${intv.semi>1?'s':''}).`,
+      };
+    }
+  },
+];
+
+function EcouteActive() {
+  const [qTypeIdx,  setQTypeIdx]  = useState(0);
+  const [question,  setQuestion]  = useState(null);
+  const [answered,  setAnswered]  = useState(false);
+  const [chosen,    setChosen]    = useState(null);
+  const [score,     setScore]     = useState({correct:0,total:0});
+  const [playing,   setPlaying]   = useState(false);
+
+  const qType = ECOUTE_QUESTIONS[qTypeIdx];
+
+  function newQuestion() {
+    setQuestion(qType.generate());
+    setAnswered(false); setChosen(null);
+  }
+
+  useEffect(()=>newQuestion(),[qTypeIdx]);
+
+  async function playQ() {
+    if (!question||playing) return;
+    setPlaying(true);
+    await question.play();
+    setPlaying(false);
+  }
+
+  function pick(opt) {
+    if (answered||!question) return;
+    setChosen(opt); setAnswered(true);
+    setScore(s=>({correct:s.correct+(opt===question.answer?1:0),total:s.total+1}));
+  }
+
+  if (!question) return null;
+
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1.25rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:4}}>Écoute Active</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>CULTURE MUSICALE · ANALYSE À L'OREILLE</p>
+        </div>
+        <span style={{fontSize:12,fontFamily:'monospace',color:'#82E0AA'}}>{score.correct}/{score.total}</span>
+      </div>
+
+      {/* Type selector */}
+      <div style={{display:'flex',gap:5,overflowX:'auto'}}>
+        {ECOUTE_QUESTIONS.map((q,i)=>(
+          <button key={q.id} onClick={()=>setQTypeIdx(i)}
+            style={{padding:'.4rem .75rem',background:qTypeIdx===i?'rgba(167,139,250,0.18)':'rgba(255,255,255,0.04)',border:`1px solid ${qTypeIdx===i?'#A78BFA':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:qTypeIdx===i?'#A78BFA':'rgba(255,255,255,0.45)',fontSize:10,fontFamily:'monospace',whiteSpace:'nowrap',flexShrink:0,transition:'all 0.2s'}}>
+            {q.title}
+          </button>
+        ))}
+      </div>
+
+      {/* Question */}
+      <div style={{padding:'1.5rem',background:'rgba(167,139,250,0.07)',border:'1.5px solid rgba(167,139,250,0.25)',borderRadius:16,textAlign:'center'}}>
+        <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'1rem'}}>{qType.title.toUpperCase()}</div>
+        <button onClick={playQ} disabled={playing}
+          style={{padding:'.9rem 2rem',background:'rgba(167,139,250,0.15)',border:'1.5px solid #A78BFA',color:'#A78BFA',borderRadius:12,cursor:playing?'default':'pointer',fontSize:14,fontFamily:'monospace',fontWeight:'bold',marginBottom:'.5rem',transition:'all 0.2s'}}>
+          {playing?'▶ EN COURS…':'🔊 ÉCOUTER'}
+        </button>
+        <div style={{fontSize:10,opacity:.35,fontFamily:'monospace'}}>Écoute plusieurs fois si besoin</div>
+      </div>
+
+      {/* Options */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        {question.options.map((opt,i)=>{
+          const isC=opt===question.answer, isCh=chosen===opt;
+          let bg='rgba(255,255,255,0.04)',border='rgba(255,255,255,0.12)',col='rgba(255,255,255,0.75)';
+          if(answered){if(isC){bg='rgba(130,224,170,0.15)';border='#82E0AA';col='#82E0AA';}else if(isCh){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}else{col='rgba(255,255,255,0.25)';}}
+          return(
+            <button key={i} onClick={()=>pick(opt)} disabled={answered}
+              style={{background:bg,border:`1.5px solid ${border}`,color:col,padding:'.9rem .75rem',borderRadius:11,cursor:answered?'default':'pointer',textAlign:'center',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',transition:'all 0.2s'}}
+              onMouseEnter={e=>{if(!answered){e.currentTarget.style.background='rgba(167,139,250,0.1)';e.currentTarget.style.borderColor='rgba(167,139,250,0.5)';}}}
+              onMouseLeave={e=>{if(!answered){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.12)';}}}
+            >{opt}</button>
+          );
+        })}
+      </div>
+
+      {answered && (
+        <div style={{display:'flex',flexDirection:'column',gap:8,animation:'fadeIn 0.3s ease'}}>
+          <div style={{padding:'.85rem',background:chosen===question.answer?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.1)',border:`1px solid ${chosen===question.answer?'rgba(130,224,170,0.35)':'rgba(241,148,138,0.35)'}`,borderRadius:10}}>
+            <div style={{fontSize:14,fontWeight:'bold',color:chosen===question.answer?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:4}}>
+              {chosen===question.answer?'✓ Bonne réponse !':('✗ C\'était : '+question.answer)}
+            </div>
+            <p style={{fontSize:12,opacity:.65,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{question.explanation}</p>
+          </div>
+          <button onClick={newQuestion}
+            style={{padding:'.85rem',background:chosen===question.answer?'rgba(130,224,170,0.12)':'rgba(241,148,138,0.08)',border:`1.5px solid ${chosen===question.answer?'#82E0AA':'#F1948A'}`,color:chosen===question.answer?'#82E0AA':'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.08em'}}>
+            QUESTION SUIVANTE →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── CARNET DE COMPOSITION ─────────────────────────────════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Simple melody editor: 8 columns x 8 note rows
+const MELODY_NOTES = ['C5','B4','A4','G4','F4','E4','D4','C4'];
+const MELODY_NOTE_LABELS = {C5:'Do5',B4:'Si',A4:'La',G4:'Sol',F4:'Fa',E4:'Mi',D4:'Ré',C4:'Do'};
+
+function MelodyEditor({ melody, setMelody }) {
+  const COLS = 8;
+  function toggle(row, col) {
+    const key = `${row}-${col}`;
+    setMelody(prev => {
+      const n = {...prev};
+      if (n[key]) delete n[key]; else n[key] = MELODY_NOTES[row];
+      return n;
+    });
+  }
+  async function playMelody() {
+    const sorted = Object.entries(melody).sort((a,b)=>parseInt(a[0].split('-')[1])-parseInt(b[0].split('-')[1]));
+    for (const [key, note] of sorted) {
+      const semi = CHROMATIC.indexOf(note.replace(/[45]/,''));
+      const oct  = note.includes('5') ? 5 : 4;
+      playNote(semi+oct*12, 0, 0.7);
+      await new Promise(r=>setTimeout(r,350));
+    }
+  }
+  return (
+    <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.65rem'}}>
+        <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em'}}>ÉDITEUR DE MÉLODIE</div>
+        <div style={{display:'flex',gap:6}}>
+          <button onClick={playMelody} style={{padding:'.3rem .7rem',background:'rgba(232,168,87,0.12)',border:'1px solid rgba(232,168,87,0.35)',color:'#E8A857',borderRadius:7,cursor:'pointer',fontSize:10,fontFamily:'monospace'}}>▶ JOUER</button>
+          <button onClick={()=>setMelody({})} style={{padding:'.3rem .7rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.12)',color:'rgba(255,255,255,0.4)',borderRadius:7,cursor:'pointer',fontSize:10,fontFamily:'monospace'}}>↺</button>
+        </div>
+      </div>
+      <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:2}}>
+        {MELODY_NOTES.map((note,row)=>(
+          <div key={row} style={{display:'contents'}}>
+            <div style={{fontSize:9,fontFamily:'monospace',color:'rgba(255,255,255,0.3)',display:'flex',alignItems:'center',paddingRight:6,whiteSpace:'nowrap'}}>{MELODY_NOTE_LABELS[note]}</div>
+            <div style={{display:'flex',gap:2}}>
+              {Array.from({length:COLS}).map((_,col)=>{
+                const isOn = !!melody[`${row}-${col}`];
+                const nc = NOTE_COLORS[note.replace(/[45]/,'')]||'#E8A857';
+                return(
+                  <button key={col} onClick={()=>toggle(row,col)}
+                    style={{flex:1,height:22,background:isOn?`${nc}60`:'rgba(255,255,255,0.04)',border:`1px solid ${isOn?nc+'80':'rgba(255,255,255,0.08)'}`,borderRadius:3,cursor:'pointer',transition:'all 0.1s'}}/>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{fontSize:9,opacity:.3,fontFamily:'monospace',marginTop:'.5rem',textAlign:'center'}}>Clique sur les cases pour noter ta mélodie</div>
+    </div>
+  );
+}
+
+function CarnetComposition() {
+  const [entries,   setEntries]   = useState(loadCarnet);
+  const [view,      setView]      = useState('list'); // list | new | detail
+  const [selEntry,  setSelEntry]  = useState(null);
+  const [form,      setForm]      = useState({title:'',chords:'',notes:'',melody:{}});
+  const [saved,     setSaved]     = useState(false);
+
+  function saveEntry() {
+    if (!form.title.trim()) return;
+    const entry = {
+      id: Date.now(),
+      title: form.title,
+      date: todayStr(),
+      type: 'composition',
+      chords: form.chords ? form.chords.split(/[\s,]+/).filter(Boolean) : [],
+      notes: form.notes,
+      melody: form.melody,
+    };
+    const updated = [entry, ...entries];
+    setEntries(updated); saveCarnet(updated);
+    setSaved(true); setView('list');
+    setTimeout(()=>setSaved(false),2000);
+  }
+
+  function deleteEntry(id) {
+    const updated = entries.filter(e=>e.id!==id);
+    setEntries(updated); saveCarnet(updated);
+  }
+
+  if (view==='new') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:'.5rem'}}>
+        <button onClick={()=>setView('list')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+        <h3 style={{fontSize:16,fontWeight:'bold',margin:0}}>Nouvelle composition</h3>
+      </div>
+      <input placeholder="Titre de la composition *"
+        value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))}
+        style={{padding:'.75rem',background:'rgba(255,255,255,0.05)',border:'1.5px solid rgba(232,168,87,0.35)',borderRadius:10,color:'rgba(255,255,255,0.85)',fontSize:14,fontFamily:'Georgia,serif',outline:'none'}}/>
+      <input placeholder="Accords (ex: Am F C G)"
+        value={form.chords} onChange={e=>setForm(f=>({...f,chords:e.target.value}))}
+        style={{padding:'.65rem .85rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:10,color:'rgba(255,255,255,0.8)',fontSize:13,fontFamily:'monospace',outline:'none'}}/>
+      <MelodyEditor melody={form.melody} setMelody={mel=>setForm(f=>({...f,melody:mel}))}/>
+      <textarea placeholder="Notes libres, idées, inspirations..."
+        value={form.notes} onChange={e=>setForm(f=>({...f,notes:e.target.value}))}
+        rows={3}
+        style={{padding:'.75rem',background:'rgba(255,255,255,0.05)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:10,color:'rgba(255,255,255,0.75)',fontSize:12,fontFamily:'Georgia,serif',outline:'none',resize:'vertical'}}/>
+      <button onClick={saveEntry} disabled={!form.title.trim()}
+        style={{padding:'.9rem',background:form.title.trim()?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.04)',border:`1.5px solid ${form.title.trim()?'#E8A857':'rgba(255,255,255,0.1)'}`,color:form.title.trim()?'#E8A857':'rgba(255,255,255,0.25)',borderRadius:12,cursor:form.title.trim()?'pointer':'not-allowed',fontSize:13,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.1em'}}>
+        💾 SAUVEGARDER
+      </button>
+    </div>
+  );
+
+  if (view==='detail' && selEntry) return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:'.5rem'}}>
+        <button onClick={()=>setView('list')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+        <div style={{flex:1}}>
+          <h3 style={{fontSize:16,fontWeight:'bold',margin:0}}>{selEntry.title}</h3>
+          <div style={{fontSize:10,opacity:.35,fontFamily:'monospace',marginTop:2}}>{selEntry.date}</div>
+        </div>
+        <button onClick={()=>{deleteEntry(selEntry.id);setView('list');}}
+          style={{background:'rgba(241,148,138,0.1)',border:'1px solid rgba(241,148,138,0.3)',color:'#F1948A',padding:'.35rem .75rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace'}}>
+          🗑 Supprimer
+        </button>
+      </div>
+      {selEntry.chords?.length>0 && (
+        <div style={{padding:'.85rem 1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+          <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>PROGRESSION</div>
+          <div style={{display:'flex',gap:7,flexWrap:'wrap'}}>
+            {selEntry.chords.map((c,i)=>{
+              const root=c.replace(/m7?|maj7|M7/,'');
+              const nc=NOTE_COLORS[root]||'#E8A857';
+              return<span key={i} style={{padding:'.35rem .7rem',background:`${nc}15`,border:`1px solid ${nc}40`,borderRadius:7,fontSize:13,fontWeight:'bold',fontFamily:'monospace',color:nc}}>{c}</span>;
+            })}
+          </div>
+        </div>
+      )}
+      {selEntry.melody && Object.keys(selEntry.melody).length>0 && (
+        <MelodyEditor melody={selEntry.melody} setMelody={()=>{}}/>
+      )}
+      {selEntry.notes && (
+        <div style={{padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+          <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>NOTES</div>
+          <p style={{fontSize:13,opacity:.75,lineHeight:1.7,margin:0,fontFamily:'Georgia,serif',whiteSpace:'pre-wrap'}}>{selEntry.notes}</p>
+        </div>
+      )}
+    </div>
+  );
+
+  // List view
+  return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:4}}>Carnet de Composition</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>TES CRÉATIONS · IDÉES · MÉLODIES</p>
+        </div>
+        <button onClick={()=>{setForm({title:'',chords:'',notes:'',melody:{}});setView('new');}}
+          style={{padding:'.55rem .9rem',background:'rgba(232,168,87,0.15)',border:'1.5px solid #E8A857',color:'#E8A857',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',flexShrink:0}}>
+          + NOUVEAU
+        </button>
+      </div>
+      {saved && <div style={{padding:'.65rem',background:'rgba(130,224,170,0.12)',border:'1px solid rgba(130,224,170,0.35)',borderRadius:9,color:'#82E0AA',fontFamily:'monospace',fontSize:12,textAlign:'center',animation:'fadeIn 0.3s ease'}}>✓ Composition sauvegardée !</div>}
+      {entries.length===0 ? (
+        <div style={{textAlign:'center',padding:'3rem 1.5rem',opacity:.4}}>
+          <div style={{fontSize:36,marginBottom:8}}>📒</div>
+          <div style={{fontSize:13,fontFamily:'Georgia,serif'}}>Ton carnet est vide. Crée ta première composition !</div>
+        </div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {entries.map(entry=>(
+            <button key={entry.id} onClick={()=>{setSelEntry(entry);setView('detail');}}
+              style={{background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12,padding:'.9rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+              onMouseEnter={e=>{e.currentTarget.style.background='rgba(232,168,87,0.06)';e.currentTarget.style.borderColor='rgba(232,168,87,0.3)';}}
+              onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.03)';e.currentTarget.style.borderColor='rgba(255,255,255,0.08)';}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start'}}>
+                <div>
+                  <div style={{fontSize:14,fontWeight:'bold',fontFamily:'Georgia,serif',marginBottom:3}}>{entry.title}</div>
+                  <div style={{display:'flex',gap:8}}>
+                    <span style={{fontSize:9,opacity:.35,fontFamily:'monospace'}}>{entry.date}</span>
+                    {entry.chords?.length>0&&<span style={{fontSize:9,opacity:.35,fontFamily:'monospace'}}>{entry.chords.length} accords</span>}
+                    {entry.melody&&Object.keys(entry.melody).length>0&&<span style={{fontSize:9,opacity:.35,fontFamily:'monospace'}}>mélodie ♪</span>}
+                  </div>
+                </div>
+                <span style={{fontSize:9,fontFamily:'monospace',padding:'2px 7px',background:`${entry.type==='analyse'?'rgba(133,193,233,0.12)':'rgba(232,168,87,0.12)'}`,border:`0.5px solid ${entry.type==='analyse'?'rgba(133,193,233,0.3)':'rgba(232,168,87,0.3)'}`,borderRadius:6,color:entry.type==='analyse'?'#85C1E9':'#E8A857',flexShrink:0}}>{entry.type==='analyse'?'grille':'compo'}</span>
+              </div>
+              {entry.notes&&<p style={{fontSize:11,opacity:.45,margin:'.4rem 0 0',lineHeight:1.4,fontFamily:'Georgia,serif',overflow:'hidden',display:'-webkit-box',WebkitLineClamp:1,WebkitBoxOrient:'vertical'}}>{entry.notes}</p>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OreilPage(){
   const [sub,setSub]=useState(null);
   if(sub==='intervalles')   return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><IntervallesSection onBack={()=>setSub(null)}/></div>);
@@ -3181,6 +3900,8 @@ function OreilPage(){
   if(sub==='absolue')       return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><OreilleAbsolue onBack={()=>setSub(null)}/></div>);
   if(sub==='gamme')         return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><GammeRecognition onBack={()=>setSub(null)}/></div>);
   if(sub==='progressions')  return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><ProgressionsOreille/></div>);
+  if(sub==='solfege')       return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><SolfegeChante/></div>);
+  if(sub==='ecoute')        return(<div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}><EcouteActive/></div>);
 
   const MODS=[
     {id:'intervalles',  icon:'🎵', title:'Intervalles',          subtitle:'IDENTIFIER LES DISTANCES',       color:'#85C1E9'},
@@ -3189,6 +3910,8 @@ function OreilPage(){
     {id:'absolue',      icon:'👁', title:'Oreille Absolue',       subtitle:'ÉCOUTER ET REPRODUIRE',          color:'#A78BFA'},
     {id:'gamme',        icon:'🎸', title:'Reconnaissance Gamme',  subtitle:'MAJEUR · MINEUR · TONALITÉ',     color:'#F7DC6F'},
     {id:'progressions', icon:'🎷', title:'Progressions',          subtitle:'I-IV-V · ii-V-I · JAZZ',         color:'#F59E0B'},
+    {id:'solfege',      icon:'🎤', title:'Solfège Chanté',        subtitle:'CHANTE LA NOTE · MICRO',         color:'#F1948A'},
+    {id:'ecoute',       icon:'👂', title:'Écoute Active',         subtitle:'MAJEUR/MINEUR · CADENCES · NB',  color:'#A78BFA'},
   ];
   return(<div style={{padding:'1.25rem',overflowY:'auto',flex:1}}>
     <div style={{marginBottom:'1.5rem'}}>
@@ -6218,7 +6941,7 @@ function CompositionAssistee() {
       {/* Steps indicator */}
       <div style={{display:'flex',gap:6,marginBottom:'1.5rem'}}>
         {[['key','① Tonalité'],['emotion','② Émotion'],['build','③ Progression']].map(([s,label])=>(
-          <button key={s} onClick={()=>setStep(s)} style={{flex:1,padding:'.45rem .25rem',background:step===s?`${color}`:'rgba(255,255,255,0.04)',border:`1px solid ${step===s?color:'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:step===s?color:'rgba(255,255,255,0.4)',letterSpacing:'.04em',transition:'all 0.2s',textAlign:'center'}}>
+          <button key={s} onClick={()=>setStep(s)} style={{flex:1,padding:'.45rem .25rem',background:step===s?`${color}20`:'rgba(255,255,255,0.04)',border:`1.5px solid ${step===s?color:'rgba(255,255,255,0.08)'}`,borderRadius:10,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:step===s?color:'rgba(255,255,255,0.4)',letterSpacing:'.04em',transition:'all 0.2s',textAlign:'center'}}>
             {label}
           </button>
         ))}
@@ -6231,7 +6954,7 @@ function CompositionAssistee() {
             <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.65rem'}}>MODE</div>
             <div style={{display:'flex',gap:8}}>
               {['majeur','mineur'].map(m=>(
-                <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:'.7rem',background:mode===m?`${color}`:'rgba(255,255,255,0.04)',border:`1px solid ${mode===m?color:'rgba(255,255,255,0.1)'}`,borderRadius:12,cursor:'pointer',color:mode===m?color:'rgba(255,255,255,0.5)',fontFamily:'monospace',fontSize:12,fontWeight:'bold',letterSpacing:'.06em',transition:'all 0.2s',textTransform:'uppercase'}}>
+                <button key={m} onClick={()=>setMode(m)} style={{flex:1,padding:'.7rem',background:mode===m?`${color}18`:'rgba(255,255,255,0.04)',border:`1.5px solid ${mode===m?color:'rgba(255,255,255,0.1)'}`,borderRadius:12,cursor:'pointer',color:mode===m?color:'rgba(255,255,255,0.55)',fontFamily:'monospace',fontSize:12,fontWeight:'bold',letterSpacing:'.06em',transition:'all 0.2s',textTransform:'uppercase'}}>
                   {m==='majeur'?'☀ MAJEUR':'🌙 MINEUR'}
                 </button>
               ))}
@@ -6242,7 +6965,7 @@ function CompositionAssistee() {
             <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6}}>
               {KEYS.map(k=>{
                 const nc=NOTE_COLORS[k]||'#8B5CF6',sel=key===k;
-                return <button key={k} onClick={()=>setKey(k)} style={{background:sel?`${nc}`:`${nc}`,border:`1.5px solid ${sel?nc:nc+'40'}`,color:nc,padding:'.6rem .25rem',borderRadius:10,cursor:'pointer',fontSize:14,fontWeight:sel?'bold':'normal',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 4px 14px ${nc}`:'none'}}>{k}</button>;
+                return <button key={k} onClick={()=>setKey(k)} style={{background:sel?`${nc}20`:'rgba(255,255,255,0.05)',border:`1.5px solid ${sel?nc:nc+'35'}`,color:sel?'#fff':nc+'CC',padding:'.6rem .25rem',borderRadius:10,cursor:'pointer',fontSize:13,fontWeight:sel?'bold':'normal',fontFamily:'monospace',transition:'all 0.2s',boxShadow:sel?`0 3px 12px ${nc}40`:'none'}}>{k}</button>;
               })}
             </div>
           </div>
@@ -6273,14 +6996,14 @@ function CompositionAssistee() {
           <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.12em',marginBottom:'.9rem'}}>QUELLE ÉMOTION VEUX-TU TRANSMETTRE ?</div>
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {EMOTION_PROGS.map(em=>(
-              <button key={em.label} onClick={()=>applyEmotion(em)} style={{background:emotion?.label===em.label?`${em.color}`:'rgba(255,255,255,0.04)',border:`1.5px solid ${emotion?.label===em.label?em.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.9rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <button key={em.label} onClick={()=>applyEmotion(em)} style={{background:emotion?.label===em.label?`${em.color}18`:'rgba(255,255,255,0.04)',border:`1.5px solid ${emotion?.label===em.label?em.color:'rgba(255,255,255,0.1)'}`,borderRadius:12,padding:'.9rem 1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                 <div>
                   <div style={{fontSize:14,fontWeight:'bold',color:em.color,fontFamily:'Georgia,serif',marginBottom:3}}>{em.label}</div>
                   <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{em.desc}</div>
                 </div>
                 <div style={{display:'flex',gap:5,flexShrink:0,marginLeft:8}}>
                   {em.degs.map((di,i)=>(
-                    <span key={i} style={{fontSize:10,fontFamily:'monospace',color:scale[di]?.color,padding:'2px 5px',background:`${scale[di]?.color}`,borderRadius:5}}>
+                    <span key={i} style={{fontSize:10,fontFamily:'monospace',color:scale[di]?.color,padding:'2px 5px',background:`${scale[di]?.color}18`,border:`0.5px solid ${scale[di]?.color}40`,borderRadius:5}}>
                       {getChordName(di)}
                     </span>
                   ))}
@@ -6295,7 +7018,7 @@ function CompositionAssistee() {
       {step==='build' && prog.length>0 && (
         <div style={{animation:'fadeIn 0.3s ease'}}>
           {emotion && (
-            <div style={{padding:'.75rem',background:`${emotion.color}`,border:`1px solid ${emotion.color}`,borderRadius:10,marginBottom:'1.25rem'}}>
+            <div style={{padding:'.75rem',background:`${emotion.color}10`,border:`1px solid ${emotion.color}40`,borderRadius:10,marginBottom:'1.25rem'}}>
               <div style={{fontSize:12,fontWeight:'bold',color:emotion.color,fontFamily:'Georgia,serif',marginBottom:3}}>{emotion.label}</div>
               <div style={{fontSize:11,opacity:.55,fontFamily:'monospace'}}>{emotion.desc}</div>
             </div>
@@ -6316,6 +7039,64 @@ function CompositionAssistee() {
               })}
             </div>
           </div>
+
+          {/* Options avancées — Modulation + Cadence */}
+          <div style={{marginBottom:'1.25rem',display:'flex',flexDirection:'column',gap:8}}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.25rem'}}>OPTIONS AVANCÉES</div>
+
+            {/* Suggestion de cadence */}
+            <div style={{padding:'.75rem',background:'rgba(6,182,212,0.07)',border:'1px solid rgba(6,182,212,0.2)',borderRadius:10}}>
+              <div style={{fontSize:9,color:'#06B6D4',fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.4rem'}}>💡 TERMINER AVEC UNE CADENCE</div>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {[
+                  {name:'Parfaite',chords:[5,0],label:'V→I — point final'},
+                  {name:'Plagale', chords:[3,0],label:'IV→I — Amen'},
+                  {name:'Rompue', chords:[5,5],label:'V→vi — surprise'},
+                ].map((c,ci)=>(
+                  <button key={ci} onClick={()=>setProg(p=>[...p,...c.chords])}
+                    style={{padding:'.35rem .75rem',background:'rgba(6,182,212,0.1)',border:'1px solid rgba(6,182,212,0.3)',color:'#06B6D4',borderRadius:7,cursor:'pointer',fontSize:10,fontFamily:'monospace',transition:'all 0.2s'}}>
+                    +{c.name} ({c.label})
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Suggestion de modulation */}
+            <div style={{padding:'.75rem',background:'rgba(167,139,250,0.07)',border:'1px solid rgba(167,139,250,0.2)',borderRadius:10}}>
+              <div style={{fontSize:9,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.4rem'}}>🌊 AJOUTER UNE MODULATION</div>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {[
+                  {name:'Vers V (quinte)',     hint:'Sol maj — très naturel'},
+                  {name:'Vers IV (quarte)',    hint:'Fa maj — naturel'},
+                  {name:'Vers vi (relatif min)',hint:'La min — dramatique'},
+                ].map((m,mi)=>(
+                  <div key={mi} style={{padding:'.35rem .75rem',background:'rgba(167,139,250,0.1)',border:'1px solid rgba(167,139,250,0.25)',borderRadius:7,fontSize:10,fontFamily:'monospace',color:'#A78BFA',cursor:'pointer'}}
+                    title={m.hint}>
+                    {m.name}
+                  </div>
+                ))}
+              </div>
+              <p style={{fontSize:10,opacity:.45,margin:'.4rem 0 0',fontFamily:'Georgia,serif',fontStyle:'italic'}}>Après ta progression, joue la même dans une autre tonalité pour créer l'effet de modulation.</p>
+            </div>
+
+            {/* Borrowed chords suggestion */}
+            <div style={{padding:'.75rem',background:'rgba(16,185,129,0.07)',border:'1px solid rgba(16,185,129,0.2)',borderRadius:10}}>
+              <div style={{fontSize:9,color:'#10B981',fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.4rem'}}>✨ EMPRUNTER DU MINEUR (BORROWED)</div>
+              <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                {[
+                  {name:'iv mineur',idx:3,label:'Sous-dom. mineure — poignant'},
+                  {name:'♭VII',    idx:6,label:'Rock & pop — puissant'},
+                ].map((b,bi)=>(
+                  <button key={bi} onClick={()=>setProg(p=>[...p,b.idx])}
+                    style={{padding:'.35rem .75rem',background:'rgba(16,185,129,0.1)',border:'1px solid rgba(16,185,129,0.3)',color:'#10B981',borderRadius:7,cursor:'pointer',fontSize:10,fontFamily:'monospace',transition:'all 0.2s'}}
+                    title={b.label}>
+                    +{b.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Add chords */}
           <div style={{marginBottom:'1.25rem'}}>
             <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>AJOUTER UN ACCORD</div>
@@ -6393,12 +7174,12 @@ function ExtensionsTensions() {
       <div style={{marginBottom:'1.25rem',padding:'1rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
         <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>ACCORD DE BASE</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:4,marginBottom:'0.75rem'}}>
-          {ROOT_NOTES.map(r=>{const nc=NOTE_COLORS[r]||'#8B5CF6',sel=root===r;return(<button key={r} onClick={()=>{setRoot(r);setActive(new Set());}} style={{background:sel?`${nc}`:`${nc}`,border:`1.5px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 10px ${nc}`:'none'}}>{r}</button>);} )}
+          {ROOT_NOTES.map(r=>{const nc=NOTE_COLORS[r]||'#8B5CF6',sel=root===r;return(<button key={r} onClick={()=>{setRoot(r);setActive(new Set());}} style={{background:sel?`${nc}25`:'rgba(255,255,255,0.05)',border:`1.5px solid ${sel?nc:nc+'40'}`,color:sel?nc:nc+'CC',padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.2s',boxShadow:sel?`0 2px 10px ${nc}40`:'none'}}>{r}</button>);} )}
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:5}}>
           {Object.entries(CHORD_TYPES).slice(0,3).map(([t,{label}])=>{
             const tc=CHORD_COLORS[t]||'#8B5CF6',sel=baseType===t;
-            return(<button key={t} onClick={()=>{setBaseType(t);setActive(new Set());}} style={{background:sel?`${tc}`:`${tc}`,border:`1px solid ${sel?tc:tc+'30'}`,color:sel?tc:`${tc}`,padding:'.5rem .25rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',transition:'all 0.15s'}}>{label}</button>);
+            return(<button key={t} onClick={()=>{setBaseType(t);setActive(new Set());}} style={{background:sel?`${tc}18`:'rgba(255,255,255,0.04)',border:`1.5px solid ${sel?tc:tc+'30'}`,color:sel?tc:`${tc}AA`,padding:'.5rem .25rem',borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',transition:'all 0.2s'}}>{label}</button>);
           })}
         </div>
       </div>
@@ -6491,26 +7272,26 @@ function CadencesPage() {
         {CADENCES_DATA.map(cad=>{
           const isA=active===cad.id;
           return(
-            <div key={cad.id} style={{background:isA?`${cad.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?cad.color:'rgba(255,255,255,0.08)'}`,borderRadius:14,padding:'1rem',transition:'all 0.3s'}}>
+            <div key={cad.id} style={{background:isA?`${cad.color}10`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?cad.color:'rgba(255,255,255,0.08)'}`,borderRadius:14,padding:'1rem',transition:'all 0.3s'}}>
               {/* Header */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:'.75rem'}}>
                 <div>
-                  <div style={{fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif',color:isA?cad.color:'#fff',marginBottom:3}}>{cad.name}</div>
+                  <div style={{fontSize:15,fontWeight:'bold',fontFamily:'Georgia,serif',color:cad.color,marginBottom:6}}>{cad.name}</div>
                   <div style={{display:'flex',gap:6,alignItems:'center'}}>
                     {cad.chords.map((ch,i)=>(
                       <span key={i} style={{display:'flex',alignItems:'center',gap:4}}>
                         {i>0&&<span style={{opacity:.3,fontSize:12}}>→</span>}
-                        <span style={{fontSize:12,fontFamily:'monospace',color:NOTE_COLORS[ch.r]||cad.color,padding:'2px 7px',background:`${NOTE_COLORS[ch.r]||cad.color}`,borderRadius:6}}>{ch.r}{CHORD_TYPES[ch.t]?.suffix}</span>
+                        <span style={{fontSize:12,fontFamily:'monospace',fontWeight:'bold',color:NOTE_COLORS[ch.r]||cad.color,padding:'2px 8px',background:`${NOTE_COLORS[ch.r]||cad.color}18`,border:`1px solid ${NOTE_COLORS[ch.r]||cad.color}40`,borderRadius:6}}>{ch.r}{CHORD_TYPES[ch.t]?.suffix}</span>
                       </span>
                     ))}
                   </div>
                 </div>
-                <button onClick={()=>playCadence(cad)} disabled={playing} style={{background:`${cad.color}08`,border:`1px solid ${cad.color}30`,color:cad.color,padding:'.45rem .85rem',borderRadius:10,cursor:playing?'default':'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',flexShrink:0,transition:'all 0.2s',boxShadow:`0 2px 10px ${cad.color}`}}>
+                <button onClick={()=>playCadence(cad)} disabled={playing} style={{background:`${cad.color}12`,border:`1.5px solid ${cad.color}`,color:cad.color,padding:'.45rem .85rem',borderRadius:10,cursor:playing?'default':'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold',flexShrink:0,transition:'all 0.2s'}}>
                   {playing&&isA?'▶…':'▶ ÉCOUTER'}
                 </button>
               </div>
               {/* Emotion */}
-              <div style={{padding:'.65rem .85rem',background:`${cad.color}08`,borderRadius:10,marginBottom:'.65rem'}}>
+              <div style={{padding:'.65rem .85rem',background:`${cad.color}08`,border:`0.5px solid ${cad.color}25`,borderRadius:10,marginBottom:'.65rem'}}>
                 <div style={{fontSize:9,color:cad.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>RESSENTI</div>
                 <p style={{fontSize:12,opacity:.75,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>{cad.emotion}</p>
               </div>
@@ -6521,6 +7302,34 @@ function CadencesPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* Exemples musicaux */}
+      <div style={{marginTop:'1.5rem',padding:'1rem',background:'rgba(6,182,212,0.07)',border:'1px solid rgba(6,182,212,0.2)',borderRadius:14}}>
+        <div style={{fontSize:10,color:'#06B6D4',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.85rem'}}>EXEMPLES MUSICAUX CÉLÈBRES</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {[
+            {cadence:"Cadence parfaite V→I",piece:"Fin de presque toutes les sonates de Beethoven. Chaque mouvement se termine sur ce V→I définitif. Bach termine chaque chorâl exactement comme ça.",color:'#82E0AA'},
+            {cadence:"Cadence rompue V→vi",piece:"Let It Be (Beatles) — le pont utilise V→vi pour éviter la conclusion attendue et prolonger l'émotion. Extrêmement courant dans les ballades pop.",color:'#F7DC6F'},
+            {cadence:"Cadence plagale IV→I",piece:"L'Amen de toutes les hymnes religieuses. Yesterday (Beatles) se termine sur cette cadence douce. Crée un sentiment de paix et de résolution spirituelle.",color:'#85C1E9'},
+            {cadence:"Cadence demi-cadence →V",piece:"Fin des couplets de nombreuses chansons pop — la musique s'arrête sur le V sans résoudre, créant l'élan vers le refrain. Virgule musicale.",color:'#A78BFA'},
+            {cadence:"Cadence phrygienne i→V/III",piece:"Stairway to Heaven (Led Zeppelin) — intro acoustique. Tout le flamenco espagnol. Donne ce son oriental et dramatique immédiatement reconnaissable.",color:'#F1948A'},
+          ].map((ex,i)=>(
+            <div key={i} style={{padding:'.7rem .9rem',background:`${ex.color}08`,border:`0.5px solid ${ex.color}25`,borderRadius:10}}>
+              <div style={{fontSize:11,fontWeight:'bold',color:ex.color,fontFamily:'monospace',marginBottom:3}}>{ex.cadence}</div>
+              <p style={{fontSize:11,opacity:.65,margin:0,lineHeight:1.55,fontFamily:'Georgia,serif'}}>{ex.piece}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Conseil pratique */}
+      <div style={{marginTop:'1rem',padding:'.85rem 1rem',background:'rgba(232,168,87,0.07)',border:'1px solid rgba(232,168,87,0.2)',borderRadius:12,display:'flex',gap:10,alignItems:'flex-start'}}>
+        <span style={{fontSize:18,flexShrink:0}}>💡</span>
+        <div>
+          <div style={{fontSize:10,color:'#E8A857',fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>CONSEIL PRATIQUE</div>
+          <p style={{fontSize:12,opacity:.72,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>Pour mémoriser une cadence, joue-la dans toutes les tonalités au piano — d'abord lentement en écoutant l'effet, puis de plus en plus vite. En 1 semaine, ton oreille les reconnaîtra automatiquement dans n'importe quelle musique.</p>
+        </div>
       </div>
     </div>
   );
@@ -6586,7 +7395,7 @@ function ModulationPage() {
         <div>
           <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem',textAlign:'center'}}>DÉPART</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
-            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=fromKey===k;return(<button key={k} onClick={()=>setFromKey(k)} style={{background:sel?`${nc}`:`${nc}`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}`:'none'}}>{k}</button>);} )}
+            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=fromKey===k;return(<button key={k} onClick={()=>setFromKey(k)} style={{background:sel?`${nc}25`:'rgba(255,255,255,0.05)',border:`1.5px solid ${sel?nc:nc+'40'}`,color:sel?nc:nc+'CC',padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.2s',boxShadow:sel?`0 2px 8px ${nc}50`:'none'}}>{k}</button>);} )}
           </div>
         </div>
         {/* Arrow */}
@@ -6595,7 +7404,7 @@ function ModulationPage() {
         <div>
           <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.6rem',textAlign:'center'}}>ARRIVÉE</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
-            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=toKey===k;return(<button key={k} onClick={()=>setToKey(k)} style={{background:sel?`${nc}`:`${nc}`,border:`1px solid ${sel?nc:nc+'30'}`,color:nc,padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.15s',boxShadow:sel?`0 2px 8px ${nc}`:'none'}}>{k}</button>);} )}
+            {ROOT_NOTES.map(k=>{const nc=NOTE_COLORS[k]||'#8B5CF6',sel=toKey===k;return(<button key={k} onClick={()=>setToKey(k)} style={{background:sel?`${nc}25`:'rgba(255,255,255,0.05)',border:`1.5px solid ${sel?nc:nc+'40'}`,color:sel?nc:nc+'CC',padding:'.4rem .1rem',borderRadius:8,cursor:'pointer',fontSize:11,fontWeight:'bold',fontFamily:'monospace',transition:'all 0.2s',boxShadow:sel?`0 2px 8px ${nc}50`:'none'}}>{k}</button>);} )}
           </div>
         </div>
       </div>
@@ -6624,7 +7433,7 @@ function ModulationPage() {
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
               {pivots.map((p,i)=>{
                 const asTo=toDegrees.find(t=>t.name===p.name);
-                return(<div key={i} style={{padding:'.5rem .75rem',background:`${p.color}`,border:`1px solid ${p.color}`,borderRadius:10}}>
+                return(<div key={i} style={{padding:'.5rem .75rem',background:`${p.color}15`,border:`1px solid ${p.color}50`,borderRadius:10}}>
                   <div style={{fontSize:13,fontWeight:'bold',color:p.color,fontFamily:'monospace',marginBottom:2}}>{p.name}</div>
                   <div style={{fontSize:9,opacity:.55,fontFamily:'monospace'}}>{p.deg} dans {fromKey} / {asTo?.deg} dans {toKey}</div>
                 </div>);
@@ -6633,23 +7442,37 @@ function ModulationPage() {
           </div>
         )}
 
+        {/* Conseil contextuel */}
+        <div style={{padding:'.85rem 1rem',background:'rgba(232,168,87,0.07)',border:'1px solid rgba(232,168,87,0.2)',borderRadius:12,marginBottom:'1.25rem',display:'flex',gap:10,alignItems:'flex-start'}}>
+          <span style={{fontSize:20,flexShrink:0}}>💡</span>
+          <div>
+            <div style={{fontSize:10,color:'#E8A857',fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>CONSEIL POUR {fromKey} → {toKey}</div>
+            <p style={{fontSize:12,opacity:.72,lineHeight:1.6,margin:0,fontFamily:'Georgia,serif'}}>
+              {circDiff<=1 ? `Modulation très douce. Tu peux simplement jouer ${pivots[0]?.name||'un accord pivot'} et résoudre vers ${toKey}. L'oreille ne sera pas déstabilisée.`
+              :circDiff<=2 ? `Modulation naturelle. Utilise l'accord pivot ${pivots[0]?.name||''} pour créer une transition fluide. Annonce le changement avec une dominante secondaire.`
+              :circDiff<=4 ? `Modulation notable. L'oreille la percevra clairement. Prépare l'auditeur avec 2 accords de la nouvelle tonalité avant de t'y installer.`
+              :`Modulation dramatique (${circDiff} quintes). Utilise un accord diminué ou la substitution de triton pour relier les deux tonalités. Effet de surprise garanti.`}
+            </p>
+          </div>
+        </div>
+
         {/* Modulation types */}
         <div style={{marginBottom:'1rem'}}>
           <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>TECHNIQUES DE MODULATION</div>
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {MODULATION_TYPES.map(mt=>{
               const isA=selType===mt.id;
-              return(<button key={mt.id} onClick={()=>setSelType(isA?null:mt.id)} style={{background:isA?`${mt.color}`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?mt.color:'rgba(255,255,255,0.08)'}`,borderRadius:12,padding:'.9rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}>
+              return(<button key={mt.id} onClick={()=>setSelType(isA?null:mt.id)} style={{background:isA?`${mt.color}12`:'rgba(255,255,255,0.03)',border:`1.5px solid ${isA?mt.color:'rgba(255,255,255,0.08)'}`,borderRadius:12,padding:'.9rem 1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:isA?'.65rem':0}}>
                   <div style={{display:'flex',gap:8,alignItems:'center'}}>
                     <span style={{fontSize:13,fontWeight:'bold',color:mt.color,fontFamily:'Georgia,serif'}}>{mt.name}</span>
-                    <span style={{fontSize:9,padding:'2px 7px',background:`${mt.color}`,border:`0.5px solid ${mt.color}`,borderRadius:6,color:mt.color,fontFamily:'monospace'}}>{mt.diff}</span>
+                    <span style={{fontSize:9,padding:'2px 7px',background:`${mt.color}15`,border:`0.5px solid ${mt.color}50`,borderRadius:6,color:mt.color,fontFamily:'monospace'}}>{mt.diff}</span>
                   </div>
                   <span style={{fontSize:12,opacity:.4}}>{isA?'▲':'▼'}</span>
                 </div>
                 {isA&&(<div style={{animation:'fadeIn 0.25s ease'}}>
                   <p style={{fontSize:12,opacity:.65,lineHeight:1.65,margin:'0 0 .65rem',fontFamily:'Georgia,serif'}}>{mt.desc}</p>
-                  <div style={{padding:'.65rem',background:`${mt.color}`,borderRadius:8,marginBottom:'.5rem'}}>
+                  <div style={{padding:'.65rem',background:`${mt.color}0D`,border:`0.5px solid ${mt.color}30`,borderRadius:8,marginBottom:'.5rem'}}>
                     <div style={{fontSize:9,color:mt.color,fontFamily:'monospace',letterSpacing:'.08em',marginBottom:'.3rem'}}>COMMENT FAIRE</div>
                     <p style={{fontSize:11,opacity:.65,lineHeight:1.55,margin:0,fontFamily:'Georgia,serif'}}>{mt.how}</p>
                   </div>
@@ -6666,6 +7489,27 @@ function ModulationPage() {
             })}
           </div>
         </div>
+
+        {/* Exemples musicaux */}
+        <div style={{padding:'1rem',background:'rgba(139,92,246,0.07)',border:'1px solid rgba(139,92,246,0.2)',borderRadius:12}}>
+          <div style={{fontSize:10,color:'#A78BFA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.75rem'}}>EXEMPLES CÉLÈBRES DE MODULATION</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {[
+              {title:"Modulation au refrain (pop)",from:'Db',to:'Eb',type:"Directe +1 ton",piece:"Let It Be — Beatles : couplet en La, refrain monte d'un ton à Si. Effet de soulèvement universel.",color:'#85C1E9'},
+              {title:"Modulation par pivot (jazz)",from:'C',to:'F',type:"Pivot ii=vi",piece:"Autumn Leaves : le Dm7 (ii en Do) devient vi en Fa. Transition quasi-imperceptible, signature du jazz standard.",color:'#F7DC6F'},
+              {title:"Modulation enharmonique (classique)",from:'C',to:'Eb',type:"Via dim7",piece:"Beethoven Sonate Pathétique : un accord dim7 réinterprété bascule vers Mi♭ mineur. Effet de drame soudain.",color:'#F1948A'},
+              {title:"Coltrane Changes (jazz avancé)",from:'C',to:'E',type:"Tierce majeure",piece:"Giant Steps : modulations par tierces majeures si rapides que l'oreille perd le centre tonal. Révolutionnaire.",color:'#A78BFA'},
+            ].map((ex,i)=>(
+              <div key={i} style={{padding:'.75rem .9rem',background:`${ex.color}08`,border:`0.5px solid ${ex.color}25`,borderRadius:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.35rem'}}>
+                  <span style={{fontSize:12,fontWeight:'bold',color:ex.color,fontFamily:'Georgia,serif'}}>{ex.title}</span>
+                  <span style={{fontSize:9,fontFamily:'monospace',color:ex.color,padding:'1px 6px',background:`${ex.color}15`,borderRadius:5}}>{ex.type}</span>
+                </div>
+                <p style={{fontSize:11,opacity:.65,margin:0,lineHeight:1.55,fontFamily:'Georgia,serif'}}>{ex.piece}</p>
+              </div>
+            ))}
+          </div>
+        </div>
       </>)}
     </div>
   );
@@ -6679,6 +7523,8 @@ function CoinHarmoniePage() {
     {id:'extensions',  icon:'✨', title:'Extensions & Tensions', subtitle:'9e · #11 · b9 · RESSENTI',      color:'#F59E0B', ok:true},
     {id:'cadences',    icon:'🎼', title:'Cadences',              subtitle:'PARFAITE · ROMPUE · PLAGALE',   color:'#06B6D4', ok:true},
     {id:'modulation',  icon:'🔀', title:'Modulation',            subtitle:'CHANGER DE TONALITÉ',            color:'#10B981', ok:true},
+    {id:'analyse',     icon:'🔍', title:'Analyse de Grille',     subtitle:'ENTRER DES ACCORDS · ANALYSER', color:'#E8A857', ok:true},
+    {id:'carnet',      icon:'📒', title:'Carnet de Composition', subtitle:'SAUVEGARDER · MÉLODIE · NOTES', color:'#F1948A', ok:true},
   ];
 
   if (sub) {
@@ -6695,6 +7541,8 @@ function CoinHarmoniePage() {
           {sub==='extensions'  && <ExtensionsTensions/>}
           {sub==='cadences'    && <CadencesPage/>}
           {sub==='modulation'  && <ModulationPage/>}
+          {sub==='analyse'     && <AnalyseGrille/>}
+          {sub==='carnet'      && <CarnetComposition/>}
         </div>
       </div>
     );
