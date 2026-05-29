@@ -4260,9 +4260,7 @@ function ExercicesPage() {
   const [sub, setSub] = useState(null);
 
   const MODS = [
-    {id:'flashcards',   icon:'🎯', title:"Dictée d'accords",      subtitle:'JOUER LES ACCORDS AU PIANO',    color:'#F1948A'},
     {id:'cycle',        icon:'🔄', title:'Cycle des quintes',     subtitle:'12 TONALITÉS',                  color:'#F7DC6F'},
-    {id:'transposition',icon:'↔', title:'Transposition',         subtitle:'CHANGER DE TONALITÉ',            color:'#85C1E9'},
     {id:'impro',        icon:'✨', title:'Improvisation guidée',  subtitle:'GAMME · STYLE · PROGRESSION',   color:'#A78BFA'},
     {id:'biblio',       icon:'📋', title:'Bibliothèque technique',subtitle:'HANON · ARPÈGES · VÉLOCITÉ',    color:'#10B981'},
   ];
@@ -4277,9 +4275,7 @@ function ExercicesPage() {
           <span style={{fontSize:11,fontFamily:'monospace',color:info?.color,letterSpacing:'.08em'}}>{info?.title.toUpperCase()}</span>
         </div>
         <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-          {sub==='flashcards'   && <DicteeAccords/>}
           {sub==='cycle'        && <CycleQuintesExercice/>}
-          {sub==='transposition'&& <TranspositionExercice/>}
           {sub==='impro'        && <ImprovisationGuidee/>}
           {sub==='biblio'       && <BiblioTechnique/>}
         </div>
@@ -6259,6 +6255,767 @@ function CoursBorrowedChords() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── EXERCICE LECTURE D'ACCORDS ────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Données armatures
+const KEY_SIGNATURES = [
+  {key:'C',  mode:'major', sharps:0, flats:0,  label:'Do majeur',    relative:'A mineur'},
+  {key:'G',  mode:'major', sharps:1, flats:0,  label:'Sol majeur',   relative:'Mi mineur'},
+  {key:'D',  mode:'major', sharps:2, flats:0,  label:'Ré majeur',    relative:'Si mineur'},
+  {key:'A',  mode:'major', sharps:3, flats:0,  label:'La majeur',    relative:'Fa# mineur'},
+  {key:'E',  mode:'major', sharps:4, flats:0,  label:'Mi majeur',    relative:'Do# mineur'},
+  {key:'B',  mode:'major', sharps:5, flats:0,  label:'Si majeur',    relative:'Sol# mineur'},
+  {key:'F#', mode:'major', sharps:6, flats:0,  label:'Fa# majeur',   relative:'Ré# mineur'},
+  {key:'F',  mode:'major', sharps:0, flats:1,  label:'Fa majeur',    relative:'Ré mineur'},
+  {key:'Bb', mode:'major', sharps:0, flats:2,  label:'Si♭ majeur',   relative:'Sol mineur'},
+  {key:'Eb', mode:'major', sharps:0, flats:3,  label:'Mi♭ majeur',   relative:'Do mineur'},
+  {key:'Ab', mode:'major', sharps:0, flats:4,  label:'La♭ majeur',   relative:'Fa mineur'},
+  {key:'Db', mode:'major', sharps:0, flats:5,  label:'Ré♭ majeur',   relative:'Si♭ mineur'},
+  {key:'A',  mode:'minor', sharps:0, flats:0,  label:'La mineur',    relative:'Do majeur'},
+  {key:'E',  mode:'minor', sharps:1, flats:0,  label:'Mi mineur',    relative:'Sol majeur'},
+  {key:'B',  mode:'minor', sharps:2, flats:0,  label:'Si mineur',    relative:'Ré majeur'},
+  {key:'F#', mode:'minor', sharps:3, flats:0,  label:'Fa# mineur',   relative:'La majeur'},
+  {key:'D',  mode:'minor', sharps:0, flats:1,  label:'Ré mineur',    relative:'Fa majeur'},
+  {key:'G',  mode:'minor', sharps:0, flats:2,  label:'Sol mineur',   relative:'Si♭ majeur'},
+  {key:'C',  mode:'minor', sharps:0, flats:3,  label:'Do mineur',    relative:'Mi♭ majeur'},
+];
+
+// Portée SVG pour accords (notes en blocs ou arpège)
+function ChordStaff({ rootNote, chordType, inversion=0, displayMode='block', highlight=false }) {
+  const NOTE_Y = {C4:80,D4:72,E4:64,F4:58,G4:50,A4:42,B4:34,C5:26,D5:18,E5:10};
+  const NOTE_NAMES = Object.keys(NOTE_Y);
+  const ri = CHROMATIC.indexOf(rootNote);
+  if (ri < 0) return null;
+
+  // Build chord notes
+  const formula = CHORD_TYPES[chordType]?.formula || [0,4,7];
+  let baseNotes = formula.map(f => {
+    const semi = (ri + f) % 12;
+    const name = CHROMATIC[semi];
+    // Map to nearest staff position
+    const solfege_map = {C:'C4',D:'D4',E:'E4',F:'F4',G:'G4',A:'A4',B:'B4'};
+    const base = name.replace('#','').replace('b','');
+    return solfege_map[base] || 'C4';
+  });
+
+  // Apply inversion: shift bottom note(s) up
+  for (let i=0; i<inversion; i++) {
+    const bottom = baseNotes.shift();
+    // Go up one octave
+    const next = bottom === 'C4'?'C5':bottom==='D4'?'D5':bottom==='E4'?'E5':bottom==='F4'?'F5':bottom==='G4'?'G5':'C5';
+    baseNotes.push(next);
+  }
+
+  const W=180, H=110;
+  const lineY = [80,72,64,56,48]; // 5 staff lines
+  const noteColor = highlight ? '#E8A857' : '#1a1a1a';
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{background:'#faf9f4',borderRadius:8,border:'1px solid rgba(0,0,0,0.1)'}}>
+      {/* Staff lines */}
+      {lineY.map((y,i)=><line key={i} x1={20} y1={y} x2={W-10} y2={y} stroke="#555" strokeWidth={0.8}/>)}
+      {/* Treble clef */}
+      <text x={22} y={78} fontSize={36} fill="#555" fontFamily="serif" style={{userSelect:'none'}}>𝄞</text>
+
+      {/* Notes */}
+      {baseNotes.map((note,i)=>{
+        const y = NOTE_Y[note] || 50;
+        const x = displayMode==='arpege' ? 70 + i*22 : 90;
+        const needsLedger = note==='C4' || note==='C5';
+        const accidental = CHROMATIC[(ri+formula[i])%12];
+        const hasSharp = accidental?.includes('#');
+        const hasFlat  = accidental?.includes('b');
+        return(
+          <g key={i}>
+            {needsLedger && <line x1={x-8} x2={x+8} y1={y} y2={y} stroke="#555" strokeWidth={0.8}/>}
+            <ellipse cx={x} cy={y} rx={6} ry={4.5} fill={noteColor} transform={`rotate(-15,${x},${y})`}/>
+            {/* Stem */}
+            <line x1={x+5.5} y1={y} x2={x+5.5} y2={y-28} stroke={noteColor} strokeWidth={1.2}/>
+            {/* Accidental */}
+            {hasSharp && <text x={x-14} y={y+4} fontSize={11} fill={noteColor} fontFamily="serif">♯</text>}
+            {hasFlat  && <text x={x-14} y={y+4} fontSize={11} fill={noteColor} fontFamily="serif">♭</text>}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Exercice lecture d'accord
+function LectureAccordExercice() {
+  const CHORD_TYPE_KEYS = Object.keys(CHORD_TYPES);
+  const [screen,       setScreen]     = useState('config');
+  const [selectedTypes,setSelTypes]   = useState(new Set(['Majeures','Mineures']));
+  const [withInv,      setWithInv]    = useState(false);
+  const [dispMode,     setDispMode]   = useState('block'); // block | arpege | both
+  const [score,        setScore]      = useState({correct:0,total:0});
+  const [exercises,    setExercises]  = useState([]);
+  const [idx,          setIdx]        = useState(0);
+  const [answer,       setAnswer]     = useState('');
+  const [feedback,     setFeedback]   = useState(null); // null | 'correct' | 'wrong'
+  const [showAnswer,   setShowAnswer] = useState(false);
+  const inputRef = useRef(null);
+
+  function buildExercices(n=12) {
+    const types = [...selectedTypes];
+    const invMax = withInv ? 2 : 0;
+    return Array.from({length:n}, ()=>{
+      const root = ROOT_NOTES[Math.floor(Math.random()*ROOT_NOTES.length)];
+      const type = types[Math.floor(Math.random()*types.length)];
+      const inv  = Math.floor(Math.random()*(invMax+1));
+      const dm   = dispMode==='both' ? (Math.random()>0.5?'block':'arpege') : dispMode;
+      return {root,type,inv,dm};
+    });
+  }
+
+  function start() {
+    const exs = buildExercices(12);
+    setExercises(exs); setIdx(0); setScore({correct:0,total:0});
+    setAnswer(''); setFeedback(null); setShowAnswer(false);
+    setScreen('play');
+    setTimeout(()=>inputRef.current?.focus(),200);
+  }
+
+  function checkAnswer() {
+    const ex = exercises[idx];
+    if (!ex) return;
+    // Build expected answers (flexible: "Cm", "Do mineur", "C min", etc.)
+    const root = ex.root;
+    const suffix = CHORD_TYPES[ex.type]?.suffix || '';
+    const label  = CHORD_TYPES[ex.type]?.label  || '';
+    const invLabel = ex.inv>0 ? ` (renversement ${ex.inv})` : '';
+    const ans = answer.trim().toLowerCase().replace(/\s+/g,' ');
+    // Accept: Cm / C min / C mineur / Do mineur etc.
+    const expected = [
+      (root+suffix).toLowerCase(),
+      (root+' '+label).toLowerCase(),
+      (root+' '+label.toLowerCase()),
+    ];
+    const correct = expected.some(e=>ans.includes(e.toLowerCase().replace(/\s+/g,' '))) ||
+                    ans===root.toLowerCase() && suffix==='' ||
+                    (ans.startsWith(root.toLowerCase()) && ans.includes(label.toLowerCase().split('.')[0]));
+    setFeedback(correct?'correct':'wrong');
+    setScore(s=>({correct:s.correct+(correct?1:0),total:s.total+1}));
+    if (correct) playChordArp(CHORD_TYPES[ex.type].formula.map(f=>(CHROMATIC.indexOf(ex.root)+f)%12+4*12));
+  }
+
+  function next() {
+    if (idx>=exercises.length-1) { setScreen('result'); return; }
+    setIdx(i=>i+1); setAnswer(''); setFeedback(null); setShowAnswer(false);
+    setTimeout(()=>inputRef.current?.focus(),100);
+  }
+
+  const ex = exercises[idx];
+  const expectedLabel = ex ? ex.root + CHORD_TYPES[ex.type]?.suffix + (ex.inv>0?`/${ex.inv}er renversement`:'') : '';
+
+  if (screen==='config') return (
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:4}}>Lecture d'accords</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>IDENTIFIER LES ACCORDS SUR PORTÉE</p>
+      </div>
+      <div style={{padding:'1rem',background:'rgba(232,168,87,0.08)',border:'1px solid rgba(232,168,87,0.25)',borderRadius:12,marginBottom:'1.5rem'}}>
+        <p style={{fontSize:12.5,opacity:.7,margin:0,lineHeight:1.6,fontFamily:'Georgia,serif'}}>
+          Un accord apparaît sur la portée — en bloc ou en arpège. Identifie-le et écris sa notation (ex : <strong>Cm</strong>, <strong>G7</strong>, <strong>Fmaj7</strong>).
+        </p>
+      </div>
+
+      {/* Types */}
+      <div style={{marginBottom:'1.25rem'}}>
+        <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>TYPES D'ACCORDS</div>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6}}>
+          {CHORD_TYPE_KEYS.map(t=>{
+            const on=selectedTypes.has(t);
+            const c='#E8A857';
+            return(<button key={t} onClick={()=>setSelTypes(prev=>{const n=new Set(prev);n.has(t)&&n.size>1?n.delete(t):n.add(t);return n;})}
+              style={{padding:'.55rem .75rem',background:on?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${on?c:'rgba(255,255,255,0.1)'}`,borderRadius:9,cursor:'pointer',textAlign:'left',transition:'all 0.2s',display:'flex',alignItems:'center',gap:7}}>
+              <div style={{width:12,height:12,borderRadius:2,background:on?c:'rgba(255,255,255,0.15)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                {on&&<span style={{fontSize:8,color:'#000',fontWeight:'bold'}}>✓</span>}
+              </div>
+              <div>
+                <div style={{fontSize:12,fontWeight:'bold',color:on?c:'rgba(255,255,255,0.55)'}}>{CHORD_TYPES[t].label}</div>
+                <div style={{fontSize:9,opacity:.4,fontFamily:'monospace'}}>ex. C{CHORD_TYPES[t].suffix}</div>
+              </div>
+            </button>);
+          })}
+        </div>
+      </div>
+
+      {/* Options */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:'1.5rem'}}>
+        <div>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>AFFICHAGE</div>
+          <div style={{display:'flex',flexDirection:'column',gap:5}}>
+            {[['block','En bloc'],['arpege','Arpège'],['both','Mixte']].map(([v,label])=>(
+              <button key={v} onClick={()=>setDispMode(v)} style={{padding:'.45rem .7rem',background:dispMode===v?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${dispMode===v?'#E8A857':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:dispMode===v?'#E8A857':'rgba(255,255,255,0.5)',fontSize:11,fontFamily:'monospace',textAlign:'left',transition:'all 0.2s'}}>{label}</button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.5rem'}}>RENVERSEMENTS</div>
+          <button onClick={()=>setWithInv(v=>!v)} style={{width:'100%',padding:'.65rem',background:withInv?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${withInv?'#E8A857':'rgba(255,255,255,0.1)'}`,borderRadius:8,cursor:'pointer',color:withInv?'#E8A857':'rgba(255,255,255,0.5)',fontSize:11,fontFamily:'monospace',transition:'all 0.2s',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span>{withInv?'Activés':'Désactivés'}</span>
+            <div style={{width:32,height:18,borderRadius:9,background:withInv?'#E8A857':'rgba(255,255,255,0.15)',position:'relative',transition:'all 0.25s'}}>
+              <div style={{position:'absolute',top:2,left:withInv?14:2,width:14,height:14,borderRadius:'50%',background:'#fff',transition:'left 0.25s'}}/>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <button onClick={start} style={{width:'100%',padding:'1rem',background:'rgba(232,168,87,0.15)',border:'1.5px solid #E8A857',color:'#E8A857',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold'}}>
+        COMMENCER →
+      </button>
+    </div>
+  );
+
+  if (screen==='result') {
+    const pct=score.total>0?Math.round((score.correct/score.total)*100):0;
+    const mc=pct>=80?'#82E0AA':pct>=50?'#E8A857':'#F1948A';
+    return(
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
+          <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
+          <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
+          <div style={{fontSize:13,opacity:.5,fontFamily:'Georgia,serif',marginTop:8}}>{pct>=80?'Excellente lecture ! 🎉':pct>=50?'Continue à travailler ta lecture !':'Revois la construction des accords.'}</div>
+        </div>
+        <button onClick={start} style={{padding:'.9rem',background:'rgba(232,168,87,0.15)',border:'1.5px solid #E8A857',color:'#E8A857',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold'}}>🔄 RECOMMENCER</button>
+        <button onClick={()=>setScreen('config')} style={{padding:'.9rem',background:'transparent',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.1em'}}>⚙ RECONFIGURER</button>
+      </div>
+    );
+  }
+
+  if (!ex) return null;
+  const progress=(idx/exercises.length)*100;
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.7rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+          <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{idx+1}/{exercises.length}</span>
+          <span style={{fontSize:10,fontFamily:'monospace',color:'#82E0AA'}}>{score.correct} ✓</span>
+        </div>
+        <div style={{height:3,background:'rgba(255,255,255,0.08)',borderRadius:2,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${progress}%`,background:'#E8A857',borderRadius:2,transition:'width 0.3s ease'}}/>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Chord display */}
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'.75rem',padding:'1.25rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+          <div style={{fontSize:10,opacity:.35,fontFamily:'monospace',letterSpacing:'.1em'}}>
+            {ex.dm==='arpege'?'ARPÈGE':'ACCORD EN BLOC'}{ex.inv>0?` — RENVERSEMENT ${ex.inv}`:''}
+          </div>
+          <ChordStaff rootNote={ex.root} chordType={ex.type} inversion={ex.inv} displayMode={ex.dm} highlight={feedback==='correct'}/>
+          {showAnswer && (
+            <div style={{fontSize:16,fontWeight:'bold',color:'#E8A857',fontFamily:'monospace',animation:'fadeIn 0.3s ease'}}>{expectedLabel}</div>
+          )}
+        </div>
+
+        {/* Feedback */}
+        {feedback && (
+          <div style={{padding:'.85rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.1)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.35)':'rgba(241,148,138,0.35)'}`,borderRadius:10,textAlign:'center',animation:'fadeIn 0.25s ease'}}>
+            <div style={{fontSize:16,fontWeight:'bold',color:feedback==='correct'?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif'}}>
+              {feedback==='correct'?`✓ Correct ! ${expectedLabel}`:(`✗ C'était : ${expectedLabel}`)}
+            </div>
+          </div>
+        )}
+
+        {/* Input */}
+        {!feedback && (
+          <div style={{display:'flex',gap:8}}>
+            <input ref={inputRef} value={answer} onChange={e=>setAnswer(e.target.value)}
+              onKeyDown={e=>e.key==='Enter'&&answer.trim()&&checkAnswer()}
+              placeholder="Ex: Cm, G7, Fmaj7, Dm..."
+              style={{flex:1,padding:'.75rem 1rem',background:'rgba(255,255,255,0.05)',border:'1.5px solid rgba(255,255,255,0.15)',borderRadius:10,color:'rgba(255,255,255,0.85)',fontSize:14,fontFamily:'monospace',outline:'none'}}
+            />
+            <button onClick={checkAnswer} disabled={!answer.trim()}
+              style={{padding:'.75rem 1rem',background:answer.trim()?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.03)',border:`1.5px solid ${answer.trim()?'#E8A857':'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:answer.trim()?'pointer':'not-allowed',color:answer.trim()?'#E8A857':'rgba(255,255,255,0.25)',fontSize:13,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+              ✓
+            </button>
+          </div>
+        )}
+
+        {/* Controls */}
+        <div style={{display:'flex',gap:8}}>
+          {!feedback && (
+            <button onClick={()=>{setShowAnswer(true);setFeedback('wrong');setScore(s=>({...s,total:s.total+1}));}}
+              style={{flex:1,padding:'.65rem',background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:9,cursor:'pointer',color:'rgba(255,255,255,0.4)',fontSize:11,fontFamily:'monospace'}}>
+              Voir la réponse
+            </button>
+          )}
+          {feedback && (
+            <button onClick={next}
+              style={{flex:1,padding:'.75rem',background:feedback==='correct'?'rgba(130,224,170,0.12)':'rgba(241,148,138,0.08)',border:`1.5px solid ${feedback==='correct'?'#82E0AA':'#F1948A'}`,color:feedback==='correct'?'#82E0AA':'#F1948A',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.08em',animation:'fadeIn 0.3s ease'}}>
+              {idx>=exercises.length-1?'RÉSULTATS →':'ACCORD SUIVANT →'}
+            </button>
+          )}
+          <button onClick={()=>ex&&playChordArp(CHORD_TYPES[ex.type].formula.map(f=>(CHROMATIC.indexOf(ex.root)+f)%12+4*12))}
+            style={{padding:'.65rem .9rem',background:'rgba(232,168,87,0.08)',border:'1px solid rgba(232,168,87,0.25)',borderRadius:9,cursor:'pointer',color:'#E8A857',fontSize:11,fontFamily:'monospace'}}>
+            🔊
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── EXERCICE RECONNAISSANCE DES ARMATURES ─────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+function ArmatureStaff({ sharps, flats }) {
+  const W=180, H=90;
+  const lineY=[72,64,56,48,40];
+  // Sharp positions on staff (F# C# G# D# A# E# B#) — standard order
+  const SHARP_POSITIONS = [54,42,58,46,34,50,38];
+  const FLAT_POSITIONS  = [42,54,38,50,34,46,30];
+
+  return(
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{background:'#faf9f4',borderRadius:8,border:'1px solid rgba(0,0,0,0.1)'}}>
+      {lineY.map((y,i)=><line key={i} x1={20} y1={y} x2={W-10} y2={y} stroke="#555" strokeWidth={0.8}/>)}
+      <text x={22} y={70} fontSize={36} fill="#555" fontFamily="serif" style={{userSelect:'none'}}>𝄞</text>
+      {/* Sharps */}
+      {Array.from({length:sharps}).map((_,i)=>(
+        <text key={i} x={58+i*12} y={SHARP_POSITIONS[i]} fontSize={14} fill="#1a1a1a" fontFamily="serif">♯</text>
+      ))}
+      {/* Flats */}
+      {Array.from({length:flats}).map((_,i)=>(
+        <text key={i} x={58+i*12} y={FLAT_POSITIONS[i]} fontSize={14} fill="#1a1a1a" fontFamily="serif">♭</text>
+      ))}
+    </svg>
+  );
+}
+
+function ArmatureExercice() {
+  const [screen,  setScreen]  = useState('play');
+  const [pool,    setPool]    = useState([]);
+  const [idx,     setIdx]     = useState(0);
+  const [score,   setScore]   = useState({correct:0,total:0});
+  const [answered,setAnswered]= useState(false);
+  const [chosen,  setChosen]  = useState(null);
+
+  function buildPool() {
+    const shuffled=[...KEY_SIGNATURES].sort(()=>Math.random()-.5).slice(0,12);
+    setPool(shuffled); setIdx(0); setScore({correct:0,total:0}); setAnswered(false); setChosen(null);
+  }
+
+  useEffect(()=>buildPool(),[]);
+
+  const ks = pool[idx];
+
+  // Generate options only when ks is defined
+  const options = ks ? (() => {
+    const sameMode = KEY_SIGNATURES.filter(k=>k.mode===ks.mode&&k.label!==ks.label);
+    const wrongs = sameMode.sort(()=>Math.random()-.5).slice(0,3);
+    return [...wrongs, ks].sort(()=>Math.random()-.5);
+  })() : [];
+
+  // Wait for pool to load
+  if (!ks) return (
+    <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center'}}>
+      <div style={{fontSize:12,opacity:.4,fontFamily:'monospace'}}>Chargement…</div>
+    </div>
+  );
+
+  function pick(label) {
+    if (answered) return;
+    setChosen(label); setAnswered(true);
+    const correct = label===ks.label;
+    setScore(s=>({correct:s.correct+(correct?1:0),total:s.total+1}));
+  }
+
+  function next() {
+    if (idx>=pool.length-1) { setScreen('result'); return; }
+    setIdx(i=>i+1); setAnswered(false); setChosen(null);
+  }
+
+  if (screen==='result') {
+    const pct=Math.round((score.correct/score.total)*100);
+    const mc=pct>=80?'#82E0AA':pct>=50?'#E8A857':'#F1948A';
+    return(
+      <div style={{flex:1,padding:'1.5rem',display:'flex',flexDirection:'column',gap:'1.25rem',overflowY:'auto'}}>
+        <div style={{textAlign:'center',padding:'2rem',background:`${mc}08`,border:`1px solid ${mc}30`,borderRadius:14}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',opacity:.3,fontFamily:'monospace',marginBottom:'1.5rem'}}>RÉSULTATS</div>
+          <div style={{fontSize:64,fontWeight:'bold',color:mc,fontFamily:'Georgia,serif',lineHeight:1}}>{score.correct}<span style={{fontSize:28,opacity:.5}}>/{score.total}</span></div>
+          <div style={{fontSize:20,color:mc,marginTop:4}}>{pct}%</div>
+          <div style={{fontSize:13,opacity:.5,fontFamily:'Georgia,serif',marginTop:8}}>{pct>=80?'Tu maîtrises les armatures ! 🎉':pct>=50?'Continue !':'Revois le cycle des quintes.'}</div>
+        </div>
+        <button onClick={()=>{buildPool();setScreen('play');}} style={{padding:'.9rem',background:'rgba(232,168,87,0.15)',border:'1.5px solid #E8A857',color:'#E8A857',borderRadius:10,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold'}}>🔄 RECOMMENCER</button>
+      </div>
+    );
+  }
+
+  const progress=(idx/pool.length)*100;
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.7rem 1.25rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0}}>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:4}}>
+          <span style={{fontSize:10,fontFamily:'monospace',opacity:.4}}>{idx+1}/{pool.length}</span>
+          <span style={{fontSize:10,fontFamily:'monospace',color:'#82E0AA'}}>{score.correct} ✓</span>
+        </div>
+        <div style={{height:3,background:'rgba(255,255,255,0.08)',borderRadius:2,overflow:'hidden'}}>
+          <div style={{height:'100%',width:`${progress}%`,background:'#E8A857',borderRadius:2,transition:'width 0.3s ease'}}/>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:'.75rem',padding:'1.25rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:14}}>
+          <div style={{fontSize:10,opacity:.35,fontFamily:'monospace',letterSpacing:'.1em'}}>QUELLE TONALITÉ CORRESPOND À CETTE ARMATURE ?</div>
+          <ArmatureStaff sharps={ks.sharps} flats={ks.flats}/>
+          <div style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>
+            {ks.sharps>0?`${ks.sharps} dièse${ks.sharps>1?'s':''}`:ks.flats>0?`${ks.flats} bémol${ks.flats>1?'s':''}`:'Pas d\'altération'}
+          </div>
+        </div>
+
+        {answered && (
+          <div style={{padding:'.85rem',background:chosen===ks.label?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.1)',border:`1px solid ${chosen===ks.label?'rgba(130,224,170,0.35)':'rgba(241,148,138,0.35)'}`,borderRadius:10,textAlign:'center',animation:'fadeIn 0.25s ease'}}>
+            <div style={{fontSize:14,fontWeight:'bold',color:chosen===ks.label?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:4}}>
+              {chosen===ks.label?`✓ ${ks.label}`:`✗ C'était : ${ks.label}`}
+            </div>
+            <div style={{fontSize:11,opacity:.55,fontFamily:'monospace'}}>Relatif : {ks.relative}</div>
+          </div>
+        )}
+
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+          {options.map(opt=>{
+            const isC=opt.label===ks.label,isU=chosen===opt.label;
+            let bg='rgba(255,255,255,0.04)',border='rgba(255,255,255,0.12)',col='rgba(255,255,255,0.78)';
+            if(answered){if(isC){bg='rgba(130,224,170,0.15)';border='#82E0AA';col='#82E0AA';}else if(isU){bg='rgba(241,148,138,0.1)';border='#F1948A';col='#F1948A';}else{col='rgba(255,255,255,0.25)';}}
+            return(
+              <button key={opt.label} onClick={()=>pick(opt.label)} disabled={answered}
+                style={{background:bg,border:`1.5px solid ${border}`,color:col,padding:'.85rem .5rem',borderRadius:11,cursor:answered?'default':'pointer',fontSize:12,fontFamily:'Georgia,serif',fontWeight:'bold',textAlign:'center',transition:'all 0.2s'}}
+                onMouseEnter={e=>{if(!answered){e.currentTarget.style.background='rgba(232,168,87,0.1)';e.currentTarget.style.borderColor='rgba(232,168,87,0.5)';}}}
+                onMouseLeave={e=>{if(!answered){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.12)';}}}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {answered && (
+          <button onClick={next} style={{width:'100%',padding:'.85rem',background:chosen===ks.label?'rgba(130,224,170,0.12)':'rgba(241,148,138,0.08)',border:`1.5px solid ${chosen===ks.label?'#82E0AA':'#F1948A'}`,color:chosen===ks.label?'#82E0AA':'#F1948A',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold',animation:'fadeIn 0.3s ease'}}>
+            {idx>=pool.length-1?'VOIR LES RÉSULTATS →':'ARMATURE SUIVANTE →'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ── TRANSPOSITION REFONTE ─────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+const TRANSPO_MELODIES = [
+  {title:"Gamme de Do",    notes:['C4','D4','E4','F4','G4','A4','B4','C5'], semis:[0,2,4,5,7,9,11,12]},
+  {title:"Arpège Do-Mi-Sol",notes:['C4','E4','G4','C5','G4','E4','C4'],     semis:[0,4,7,12,7,4,0]},
+  {title:"Mélodie simple", notes:['C4','D4','E4','C4','E4','F4','G4'],      semis:[0,2,4,0,4,5,7]},
+  {title:"Gamme pentatonique",notes:['C4','D4','E4','G4','A4','C5'],        semis:[0,2,4,7,9,12]},
+  {title:"Quinte-Quarte",  notes:['C4','G4','C5','F4','C4'],               semis:[0,7,12,5,0]},
+];
+
+const TRANSPO_PROGRESSIONS = [
+  {title:"I-IV-V-I",    chords:[{root:'C',type:'Majeures'},{root:'F',type:'Majeures'},{root:'G',type:'Majeures'},{root:'C',type:'Majeures'}]},
+  {title:"I-V-vi-IV",  chords:[{root:'C',type:'Majeures'},{root:'G',type:'Majeures'},{root:'A',type:'Mineures'},{root:'F',type:'Majeures'}]},
+  {title:"ii-V-I",     chords:[{root:'D',type:'Mineures'},{root:'G',type:'Dom. 7'},{root:'C',type:'Majeures'}]},
+  {title:"I-VI-II-V",  chords:[{root:'C',type:'Majeures'},{root:'A',type:'Mineures'},{root:'D',type:'Mineures'},{root:'G',type:'Dom. 7'}]},
+];
+
+function TranspositionRefonte() {
+  const [mode,      setMode]      = useState('menu'); // menu | melodie | accords
+  const [screen,    setScreen]    = useState('config');
+  const [selMel,    setSelMel]    = useState(TRANSPO_MELODIES[0]);
+  const [selProg,   setSelProg]   = useState(TRANSPO_PROGRESSIONS[0]);
+  const [sourceKey, setSourceKey] = useState('C');
+  const [targetKey, setTargetKey] = useState('G');
+  const [userInput, setUserInput] = useState('');
+  const [feedback,  setFeedback]  = useState(null);
+  const [showAnswer,setShowAnswer]= useState(false);
+  const [pianoActive,setPianoActive]=useState(false);
+  const [playingNotes,setPlayingNotes]=useState(new Set());
+  const timeoutsRef = useRef([]);
+
+  function clearTimeouts() { timeoutsRef.current.forEach(clearTimeout); timeoutsRef.current=[]; }
+  useEffect(()=>()=>clearTimeouts(),[]);
+
+  // Play source melody/chords
+  function playSource() {
+    clearTimeouts();
+    if (mode==='melodie') {
+      const sourceSemi = CHROMATIC.indexOf(sourceKey);
+      selMel.semis.forEach((s,i)=>{
+        const id=setTimeout(()=>playNote(sourceSemi+s+4*12,0,0.8), i*420);
+        timeoutsRef.current.push(id);
+      });
+    } else {
+      const delta=((CHROMATIC.indexOf(sourceKey)-CHROMATIC.indexOf('C'))+12)%12;
+      selProg.chords.forEach((ch,i)=>{
+        const id=setTimeout(()=>{
+          const ri=CHROMATIC.indexOf(ch.root);
+          if(ri>=0) playChordArp(CHORD_TYPES[ch.type].formula.map(f=>(ri+delta+f)%12+4*12));
+        }, i*1100);
+        timeoutsRef.current.push(id);
+      });
+    }
+  }
+
+  // Compute expected answer
+  function getExpectedAnswer() {
+    const delta=((CHROMATIC.indexOf(targetKey)-CHROMATIC.indexOf(sourceKey))+12)%12;
+    if (mode==='melodie') {
+      const targetSemi=CHROMATIC.indexOf(targetKey);
+      return selMel.notes.map(n=>{
+        const si=CHROMATIC.indexOf(n.replace(/[45]/,''));
+        const newSi=(si+delta)%12;
+        return CHROMATIC[newSi]+(n.includes('5')?'5':'4');
+      }).join(' ');
+    } else {
+      return selProg.chords.map(ch=>{
+        const ri=CHROMATIC.indexOf(ch.root);
+        const newRi=(ri+delta)%12;
+        return CHROMATIC[newRi]+CHORD_TYPES[ch.type].suffix;
+      }).join(' - ');
+    }
+  }
+
+  function checkAnswer() {
+    const expected = getExpectedAnswer();
+    const ans = userInput.trim().toLowerCase().replace(/\s+/g,' ');
+    // Flexible check: at least 60% of expected tokens match
+    const expTokens = expected.toLowerCase().split(/[\s-]+/);
+    const matches = expTokens.filter(t=>ans.includes(t));
+    const correct = matches.length >= Math.ceil(expTokens.length*0.6);
+    setFeedback(correct?'correct':'wrong');
+    if (correct) {
+      const delta=((CHROMATIC.indexOf(targetKey)-CHROMATIC.indexOf(sourceKey))+12)%12;
+      if(mode==='melodie'){
+        const ts=CHROMATIC.indexOf(targetKey);
+        selMel.semis.forEach((s,i)=>{const id=setTimeout(()=>playNote(ts+s+4*12,0,0.7),i*350);timeoutsRef.current.push(id);});
+      }
+    }
+  }
+
+  function reset() { setFeedback(null); setUserInput(''); setShowAnswer(false); }
+
+  const expectedAnswer = (mode !== 'menu') ? getExpectedAnswer() : '';
+
+  // Piano virtual for melody transposition
+  const PLAY_KEYS_DATA = PIANO_KEYS_DATA.filter(k=>k.absIdx<=19);
+  const whites = PLAY_KEYS_DATA.filter(k=>k.type==='white');
+  const blacks = PLAY_KEYS_DATA.filter(k=>k.type==='black');
+  const minWi  = Math.min(...whites.map(k=>k.wi));
+  const targetDelta=((CHROMATIC.indexOf(targetKey)-CHROMATIC.indexOf('C'))+12)%12;
+
+  function handlePianoKey(absIdx) {
+    playNote(absIdx,0,0.8);
+    setPlayingNotes(prev=>{const n=new Set(prev);n.add(absIdx);setTimeout(()=>setPlayingNotes(p=>{const nn=new Set(p);nn.delete(absIdx);return nn;}),500);return n;});
+  }
+
+  if (mode==='menu') return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{marginBottom:'1.5rem'}}>
+        <h3 style={{fontSize:18,fontWeight:'bold',marginBottom:4}}>Transposition</h3>
+        <p style={{fontSize:11,opacity:.4,fontFamily:'monospace'}}>JOUER DANS TOUTES LES TONALITÉS</p>
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+        {[
+          {id:'melodie',icon:'🎵',title:'Transposer une mélodie',desc:'L\'app joue une mélodie dans une tonalité, tu la joues dans une autre.',color:'#E8A857'},
+          {id:'accords',icon:'🎹',title:'Transposer une grille d\'accords',desc:'Transpose une progression d\'accords dans une nouvelle tonalité.',color:'#85C1E9'},
+        ].map(m=>(
+          <button key={m.id} onClick={()=>{setMode(m.id);setScreen('config');reset();}}
+            style={{background:`${m.color}08`,border:`1.5px solid ${m.color}30`,borderRadius:14,padding:'1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.2s'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}30`;e.currentTarget.style.transform='translateY(0)';}}>
+            <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+              <span style={{fontSize:26}}>{m.icon}</span>
+              <div>
+                <div style={{fontSize:14,fontWeight:'bold',color:m.color,fontFamily:'Georgia,serif',marginBottom:4}}>{m.title}</div>
+                <p style={{fontSize:12,opacity:.6,margin:0,fontFamily:'Georgia,serif'}}>{m.desc}</p>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // Config screen
+  if (screen==='config') return(
+    <div style={{flex:1,overflowY:'auto',padding:'1.25rem'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:'1.5rem'}}>
+        <button onClick={()=>setMode('menu')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
+        <div>
+          <h3 style={{fontSize:18,fontWeight:'bold',margin:0}}>{mode==='melodie'?'Mélodie':'Grille d\'accords'}</h3>
+          <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>CONFIGURATION</p>
+        </div>
+      </div>
+
+      {/* Source selection */}
+      {mode==='melodie'?(
+        <div style={{marginBottom:'1.25rem'}}>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>MÉLODIE</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {TRANSPO_MELODIES.map(m=>(
+              <button key={m.title} onClick={()=>setSelMel(m)}
+                style={{padding:'.7rem 1rem',background:selMel.title===m.title?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${selMel.title===m.title?'#E8A857':'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:'pointer',textAlign:'left',transition:'all 0.2s',color:selMel.title===m.title?'#E8A857':'rgba(255,255,255,0.65)',fontSize:13,fontFamily:'Georgia,serif'}}>
+                {m.title}
+              </button>
+            ))}
+          </div>
+        </div>
+      ):(
+        <div style={{marginBottom:'1.25rem'}}>
+          <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>PROGRESSION</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {TRANSPO_PROGRESSIONS.map(p=>(
+              <button key={p.title} onClick={()=>setSelProg(p)}
+                style={{padding:'.7rem 1rem',background:selProg.title===p.title?'rgba(133,193,233,0.15)':'rgba(255,255,255,0.04)',border:`1px solid ${selProg.title===p.title?'#85C1E9':'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:'pointer',textAlign:'left',transition:'all 0.2s',color:selProg.title===p.title?'#85C1E9':'rgba(255,255,255,0.65)',fontSize:13,fontFamily:'Georgia,serif'}}>
+                <div style={{fontWeight:'bold',marginBottom:2}}>{p.title}</div>
+                <div style={{fontSize:10,opacity:.5,fontFamily:'monospace'}}>{p.chords.map(c=>c.root+CHORD_TYPES[c.type].suffix).join(' - ')}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Key selection */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem',marginBottom:'1.5rem'}}>
+        {[['Tonalité source',sourceKey,setSourceKey,'#82E0AA'],['Tonalité cible',targetKey,setTargetKey,'#E8A857']].map(([label,val,setter,color])=>(
+          <div key={label}>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.55rem'}}>{label}</div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:4}}>
+              {ROOT_NOTES.map(k=>(
+                <button key={k} onClick={()=>setter(k)}
+                  style={{padding:'.4rem',background:val===k?`${color}20`:'rgba(255,255,255,0.04)',border:`1px solid ${val===k?color:'rgba(255,255,255,0.1)'}`,borderRadius:7,cursor:'pointer',color:val===k?color:'rgba(255,255,255,0.55)',fontSize:11,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+                  {k}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={()=>setScreen('play')} style={{width:'100%',padding:'1rem',background:'rgba(232,168,87,0.15)',border:'1.5px solid #E8A857',color:'#E8A857',borderRadius:12,cursor:'pointer',fontSize:13,fontFamily:'monospace',letterSpacing:'.1em',fontWeight:'bold'}}>
+        COMMENCER →
+      </button>
+    </div>
+  );
+
+  // Play screen
+  const accentColor = mode==='melodie'?'#E8A857':'#85C1E9';
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',flexShrink:0,display:'flex',alignItems:'center',gap:8}}>
+        <button onClick={()=>setScreen('config')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11}}>← CONFIG</button>
+        <span style={{opacity:.2}}>|</span>
+        <span style={{fontSize:11,fontFamily:'monospace',color:accentColor}}>{mode==='melodie'?selMel.title:selProg.title}</span>
+        <span style={{fontSize:10,opacity:.35,fontFamily:'monospace',marginLeft:'auto'}}>{sourceKey} → {targetKey}</span>
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'1.25rem',display:'flex',flexDirection:'column',gap:'1rem'}}>
+        {/* Source */}
+        <div style={{padding:'1rem',background:'rgba(130,224,170,0.06)',border:'1px solid rgba(130,224,170,0.2)',borderRadius:12}}>
+          <div style={{fontSize:10,color:'#82E0AA',fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>
+            VERSION ORIGINALE — {sourceKey}
+          </div>
+          {mode==='melodie'?(
+            <div style={{fontSize:13,fontFamily:'monospace',color:'rgba(255,255,255,0.6)',marginBottom:'.75rem'}}>{selMel.notes.join(' ')}</div>
+          ):(
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:'.75rem'}}>
+              {selProg.chords.map((ch,i)=>{
+                const delta=((CHROMATIC.indexOf(sourceKey)-CHROMATIC.indexOf('C'))+12)%12;
+                const ri=CHROMATIC.indexOf(ch.root);
+                const newRi=(ri+delta)%12;
+                return<div key={i} style={{padding:'.35rem .75rem',background:'rgba(130,224,170,0.12)',border:'1px solid rgba(130,224,170,0.3)',borderRadius:8,fontSize:13,fontWeight:'bold',fontFamily:'monospace',color:'#82E0AA'}}>{CHROMATIC[newRi]+CHORD_TYPES[ch.type].suffix}</div>;
+              })}
+            </div>
+          )}
+          <button onClick={playSource} style={{padding:'.5rem 1rem',background:'rgba(130,224,170,0.12)',border:'1px solid rgba(130,224,170,0.35)',borderRadius:8,cursor:'pointer',color:'#82E0AA',fontSize:11,fontFamily:'monospace',letterSpacing:'.06em',fontWeight:'bold'}}>
+            🔊 ÉCOUTER
+          </button>
+        </div>
+
+        {/* Target */}
+        <div style={{padding:'1rem',background:`${accentColor}06`,border:`1px solid ${accentColor}25`,borderRadius:12}}>
+          <div style={{fontSize:10,color:accentColor,fontFamily:'monospace',letterSpacing:'.1em',marginBottom:'.65rem'}}>
+            À TRANSPOSER EN — {targetKey}
+          </div>
+          {showAnswer && (
+            <div style={{fontSize:13,fontFamily:'monospace',color:accentColor,marginBottom:'.5rem',animation:'fadeIn 0.3s ease',padding:'.5rem .75rem',background:`${accentColor}10`,borderRadius:8}}>
+              {expectedAnswer}
+            </div>
+          )}
+          {feedback ? (
+            <div style={{padding:'.75rem',background:feedback==='correct'?'rgba(130,224,170,0.1)':'rgba(241,148,138,0.1)',border:`1px solid ${feedback==='correct'?'rgba(130,224,170,0.35)':'rgba(241,148,138,0.35)'}`,borderRadius:10,textAlign:'center',animation:'fadeIn 0.25s ease'}}>
+              <div style={{fontSize:15,fontWeight:'bold',color:feedback==='correct'?'#82E0AA':'#F1948A',fontFamily:'Georgia,serif',marginBottom:feedback==='correct'?0:4}}>
+                {feedback==='correct'?'✓ Bravo !':'✗ Pas tout à fait…'}
+              </div>
+              {feedback==='wrong'&&<div style={{fontSize:11,opacity:.6,fontFamily:'monospace'}}>Réponse : {expectedAnswer}</div>}
+            </div>
+          ):(
+            <div style={{display:'flex',gap:8}}>
+              <input value={userInput} onChange={e=>setUserInput(e.target.value)}
+                onKeyDown={e=>e.key==='Enter'&&userInput.trim()&&checkAnswer()}
+                placeholder={mode==='melodie'?`Ex: ${targetKey} ${targetKey==='G'?'A B C D E F# G':'...'}...`:`Ex: ${targetKey} → accords...`}
+                style={{flex:1,padding:'.7rem .9rem',background:'rgba(255,255,255,0.05)',border:`1.5px solid ${accentColor}40`,borderRadius:10,color:'rgba(255,255,255,0.85)',fontSize:12,fontFamily:'monospace',outline:'none'}}
+              />
+              <button onClick={checkAnswer} disabled={!userInput.trim()}
+                style={{padding:'.7rem .9rem',background:userInput.trim()?`${accentColor}15`:'rgba(255,255,255,0.03)',border:`1.5px solid ${userInput.trim()?accentColor:'rgba(255,255,255,0.1)'}`,borderRadius:10,cursor:userInput.trim()?'pointer':'not-allowed',color:userInput.trim()?accentColor:'rgba(255,255,255,0.25)',fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>✓</button>
+            </div>
+          )}
+        </div>
+
+        {/* Piano virtuel (mélodie seulement) */}
+        {mode==='melodie' && (
+          <div style={{padding:'.85rem',background:'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.08)',borderRadius:12}}>
+            <div style={{fontSize:9,opacity:.35,fontFamily:'monospace',textAlign:'center',letterSpacing:'.1em',marginBottom:'.6rem'}}>PIANO — JOUE LA MÉLODIE TRANSPOSÉE</div>
+            <div style={{position:'relative',height:90,overflowX:'auto'}}>
+              {whites.map(({absIdx,wi})=>{
+                const isPlaying=playingNotes.has(absIdx);
+                const isTarget=selMel.semis.map(s=>(CHROMATIC.indexOf(targetKey)+s)%12).includes(absIdx%12);
+                return<div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
+                  style={{position:'absolute',left:(wi-minWi)*34,top:0,width:32,height:85,background:isPlaying?'#E8A857':isTarget?'rgba(232,168,87,0.25)':'#f3ede0',border:'1.5px solid #555',borderRadius:'0 0 5px 5px',cursor:'pointer',transition:'background 0.15s'}}
+                  onMouseEnter={e=>{if(!isPlaying)e.currentTarget.style.background='#e0d8c8';}}
+                  onMouseLeave={e=>{if(!isPlaying)e.currentTarget.style.background=isTarget?'rgba(232,168,87,0.25)':'#f3ede0';}}/>;
+              })}
+              {blacks.map(({absIdx,wi})=>{
+                const isPlaying=playingNotes.has(absIdx);
+                return<div key={absIdx} onClick={()=>handlePianoKey(absIdx)}
+                  style={{position:'absolute',left:(wi-minWi)*34+22,top:0,width:22,height:55,zIndex:2,background:isPlaying?'#E8A857':'#181614',border:'1px solid #000',borderRadius:'0 0 4px 4px',cursor:'pointer',transition:'background 0.15s'}}/>;
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Controls */}
+        <div style={{display:'flex',gap:8}}>
+          {!feedback&&!showAnswer&&(
+            <button onClick={()=>setShowAnswer(true)}
+              style={{flex:1,padding:'.65rem',background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:9,cursor:'pointer',color:'rgba(255,255,255,0.4)',fontSize:11,fontFamily:'monospace'}}>
+              Voir la réponse
+            </button>
+          )}
+          {feedback&&(
+            <button onClick={reset}
+              style={{flex:1,padding:'.75rem',background:`${accentColor}12`,border:`1.5px solid ${accentColor}`,color:accentColor,borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',letterSpacing:'.08em',animation:'fadeIn 0.3s ease'}}>
+              🔄 NOUVEL ESSAI
+            </button>
+          )}
+          <button onClick={()=>{reset();setScreen('config');}}
+            style={{padding:'.65rem .9rem',background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:9,cursor:'pointer',color:'rgba(255,255,255,0.4)',fontSize:11,fontFamily:'monospace'}}>
+            ⚙
+          </button>
+        </div>
+
+        <div style={{padding:'.65rem .9rem',background:'rgba(232,168,87,0.06)',border:'1px solid rgba(232,168,87,0.18)',borderRadius:10}}>
+          <p style={{fontSize:11,opacity:.55,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>
+            💡 Pour transposer : calcule l'intervalle entre les deux toniques ({sourceKey} → {targetKey} = {((CHROMATIC.indexOf(targetKey)-CHROMATIC.indexOf(sourceKey)+12)%12)} demi-ton{((CHROMATIC.indexOf(targetKey)-CHROMATIC.indexOf(sourceKey)+12)%12)>1?'s':''}), puis décale chaque note/accord du même intervalle.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TheoriePage() {
   const [section, setSection] = useState('main');
   const [exSub,   setExSub]   = useState(null);
@@ -6269,6 +7026,21 @@ function TheoriePage() {
     fonctions:"Fonctions harmoniques",cadences:"Cadences",iivi:"ii-V-I Jazz",borrowed:"Borrowed Chords"
   };
   const COURSE_COLORS = {gammes:'#C39BD3',intervalles:'#85C1E9',accords:'#F7DC6F',fonctions:'#F1948A',cadences:'#06B6D4',iivi:'#8B5CF6',borrowed:'#10B981'};
+
+  const THEORY_EXERCISES = [
+    {id:'solfege',    icon:'🎵', title:'Symboles Musicaux',       sub:'Clés · Silences · Valeurs · Chiffrage · Nuances', color:'#F7DC6F',
+     desc:"Reconnaître les symboles d'une partition. 21 symboles, exercice d'identification."},
+    {id:'lecture',    icon:'📖', title:'Lecture de Partition',     sub:'Identifier les notes en solfège',                  color:'#85C1E9',
+     desc:"Lis des mélodies sur portée et identifie chaque note. Mélodies aléatoires."},
+    {id:'laccord',   icon:'🎼', title:'Lecture d\'Accords',        sub:'Accords en bloc · Arpège · Renversements',          color:'#E8A857',
+     desc:"Un accord apparaît sur la portée — identifie-le par son nom. Avec options de renversement."},
+    {id:'armature',  icon:'🔑', title:'Armatures & Tonalités',     sub:'Dièses · Bémols · Tonalités majeures/mineures',     color:'#82E0AA',
+     desc:"Identifie la tonalité à partir de l'armure. 19 tonalités couvrant le cycle des quintes."},
+    {id:'dictee',    icon:'🎯', title:"Dictée d'Accords",          sub:'Auto-avance · Timer configurable',                   color:'#F1948A',
+     desc:"Les accords défilent automatiquement — joue-les sur ton piano avant le suivant."},
+    {id:'transpo',   icon:'↔', title:'Transposition',              sub:'Mélodie · Grille d\'accords · Piano virtuel',        color:'#A78BFA',
+     desc:"Transpose une mélodie ou une grille d'accords dans une nouvelle tonalité."},
+  ];
 
   const CATEGORIES = [
     { title:'Harmonie classique', color:'#C39BD3', icon:'🎼', items:[
@@ -6323,18 +7095,24 @@ function TheoriePage() {
   }
 
   // Exercices view
+  // Exercices view
   if (section==='exercices') {
     if (exSub) {
+      const ex = THEORY_EXERCISES.find(e=>e.id===exSub);
       return(
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
           <div style={{display:'flex',alignItems:'center',gap:8,padding:'.65rem 1rem',borderBottom:'0.5px solid rgba(255,255,255,0.07)',background:'rgba(13,11,30,0.8)',flexShrink:0}}>
-            <button onClick={()=>setExSub(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,padding:'4px 8px',borderRadius:6,transition:'all 0.2s'}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}>← EXERCICES THÉORIQUES</button>
+            <button onClick={()=>setExSub(null)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontFamily:'monospace',fontSize:11,padding:'4px 8px',borderRadius:6}} onMouseEnter={e=>e.currentTarget.style.color='#fff'} onMouseLeave={e=>e.currentTarget.style.color='rgba(255,255,255,0.5)'}>← EXERCICES</button>
             <span style={{opacity:.2}}>|</span>
-            <span style={{fontSize:11,fontFamily:'monospace',color:exSub==='solfege'?'#F7DC6F':'#85C1E9',letterSpacing:'.06em'}}>{exSub==='solfege'?'SYMBOLES MUSICAUX':'LECTURE DE PARTITION'}</span>
+            <span style={{fontSize:11,fontFamily:'monospace',color:ex?.color||'#E8A857',letterSpacing:'.06em'}}>{ex?.title?.toUpperCase()}</span>
           </div>
           <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
-            {exSub==='solfege' && <SymbolesMusique/>}
-            {exSub==='lecture' && <LectureExercice/>}
+            {exSub==='solfege'  && <SymbolesMusique/>}
+            {exSub==='lecture'  && <LectureExercice/>}
+            {exSub==='laccord'  && <LectureAccordExercice/>}
+            {exSub==='armature' && <ArmatureExercice/>}
+            {exSub==='dictee'   && <DicteeAccords/>}
+            {exSub==='transpo'  && <TranspositionRefonte/>}
           </div>
         </div>
       );
@@ -6345,26 +7123,21 @@ function TheoriePage() {
           <button onClick={()=>setSection('main')} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',cursor:'pointer',fontSize:18}}>←</button>
           <div>
             <h3 style={{fontSize:18,fontWeight:'bold',margin:0}}>Exercices Théoriques</h3>
-            <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>SYMBOLES · LECTURE DE PARTITION</p>
+            <p style={{fontSize:11,opacity:.4,fontFamily:'monospace',margin:'2px 0 0'}}>6 MODULES · LECTURE · DICTÉE · TRANSPOSITION</p>
           </div>
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:10}}>
-          {[
-            {id:'solfege',icon:'🎵',title:'Symboles Musicaux',sub:'Clés · Silences · Valeurs · Chiffrage · Nuances',color:'#F7DC6F',
-             desc:"Apprends à reconnaître tous les symboles d'une partition. 21 symboles classés, exercice d'identification."},
-            {id:'lecture',icon:'📖',title:'Lecture de Partition',sub:'Identifier les notes en solfège',color:'#85C1E9',
-             desc:"Lis des mélodies sur portée et identifie chaque note. Mélodies fixes et générées aléatoirement."},
-          ].map(m=>(
+          {THEORY_EXERCISES.map(m=>(
             <button key={m.id} onClick={()=>setExSub(m.id)}
-              style={{background:`${m.color}08`,border:`1.5px solid ${m.color}`,borderRadius:14,padding:'1.1rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s cubic-bezier(0.34,1.56,0.64,1)'}}
-              onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 8px 20px ${m.color}`;}}
-              onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}18`;e.currentTarget.style.borderColor=`${m.color}`;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
+              style={{background:`${m.color}08`,border:`1.5px solid ${m.color}30`,borderRadius:14,padding:'1rem',cursor:'pointer',textAlign:'left',transition:'all 0.25s'}}
+              onMouseEnter={e=>{e.currentTarget.style.background=`${m.color}15`;e.currentTarget.style.borderColor=m.color;e.currentTarget.style.transform='translateY(-2px)';}}
+              onMouseLeave={e=>{e.currentTarget.style.background=`${m.color}08`;e.currentTarget.style.borderColor=`${m.color}30`;e.currentTarget.style.transform='translateY(0)';}}>
               <div style={{display:'flex',gap:12,alignItems:'flex-start'}}>
-                <span style={{fontSize:28}}>{m.icon}</span>
+                <span style={{fontSize:24,flexShrink:0}}>{m.icon}</span>
                 <div>
-                  <div style={{fontSize:15,fontWeight:'bold',color:m.color,fontFamily:'Georgia,serif',marginBottom:4}}>{m.title}</div>
-                  <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',letterSpacing:'.04em',marginBottom:6}}>{m.sub}</div>
-                  <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.55,fontFamily:'Georgia,serif'}}>{m.desc}</p>
+                  <div style={{fontSize:14,fontWeight:'bold',color:m.color,fontFamily:'Georgia,serif',marginBottom:3}}>{m.title}</div>
+                  <div style={{fontSize:9,opacity:.45,fontFamily:'monospace',letterSpacing:'.04em',marginBottom:5}}>{m.sub}</div>
+                  <p style={{fontSize:12,opacity:.6,margin:0,lineHeight:1.5,fontFamily:'Georgia,serif'}}>{m.desc}</p>
                 </div>
               </div>
             </button>
@@ -6373,6 +7146,7 @@ function TheoriePage() {
       </div>
     );
   }
+
 
   // ── MAIN PAGE ────────────────────────────────────────────────────────────────
   return (
@@ -6436,7 +7210,7 @@ function TheoriePage() {
 const APPRENTISSAGE_SECTIONS = [
   {id:'accords',   icon:'♩',  title:'Répertoire', subtitle:'ACCORDS · PARTITIONS · GRILLES · IMPRO', color:'#C39BD3'},
   {id:'oreille',   icon:'👂', title:'Oreille',     subtitle:'INTERVALLES · ACCORDS · MÉLODIE',        color:'#85C1E9'},
-  {id:'exercices', icon:'✎',  title:'Technique',   subtitle:'DICTÉE · CYCLE · TRANSPOSITION · IMPRO', color:'#82E0AA'},
+  {id:'exercices', icon:'✎',  title:'Technique',   subtitle:'CYCLE · IMPRO · BIBLIOTHÈQUE',           color:'#82E0AA'},
   {id:'theorie',   icon:'📖', title:'Théorie',      subtitle:'HARMONIE · JAZZ · COMPOSITION',           color:'#F7DC6F'},
   {id:'harmonie',  icon:'🏛',  title:'Harmonie',    subtitle:'CONSTRUIRE · ANALYSER · COMPRENDRE',      color:'#AED6F1'},
 ];
