@@ -4310,6 +4310,342 @@ function ExercicesPage() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// ── SYSTÈME MICROPHONE — Détection d'accords en temps réel ───────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Convertit une fréquence Hz en nom de note (tempérament égal, référence A4=440Hz)
+function freqToNoteName(freq) {
+  if (freq < 60 || freq > 2000) return null;
+  const semis = Math.round(12 * Math.log2(freq / 440)) + 69; // MIDI note number
+  if (semis < 24 || semis > 96) return null;
+  const names = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
+  return names[((semis % 12) + 12) % 12];
+}
+
+// Détecte les pics de fréquence dans le spectre FFT
+// Retourne un tableau de {freq, amplitude} trié par amplitude décroissante
+function detectFFTPeaks(dataArray, sampleRate, fftSize) {
+  const peaks = [];
+  const minFreq = 65;   // C2
+  const maxFreq = 1400; // Fa5
+  const minBin  = Math.ceil(minFreq  * fftSize / sampleRate);
+  const maxBin  = Math.floor(maxFreq * fftSize / sampleRate);
+  const threshold = -55; // dB minimum (piano can be quiet)
+
+  for (let i = minBin + 1; i < maxBin - 1 && i < dataArray.length; i++) {
+    const amp = dataArray[i];
+    if (amp > threshold &&
+        amp > dataArray[i - 1] &&
+        amp > dataArray[i + 1] &&
+        amp > dataArray[Math.max(0, i - 2)] &&
+        amp > dataArray[Math.min(dataArray.length - 1, i + 2)]) {
+      // Interpolation parabolique pour précision sub-bin
+      const alpha = dataArray[i - 1];
+      const beta  = dataArray[i];
+      const gamma = dataArray[i + 1];
+      const p2    = 0.5 * (alpha - gamma) / (alpha - 2 * beta + gamma);
+      const freq  = (i + p2) * sampleRate / fftSize;
+      peaks.push({ freq, amplitude: amp });
+    }
+  }
+
+  return peaks.sort((a, b) => b.amplitude - a.amplitude);
+}
+
+// Supprime les harmoniques : si un pic est proche d'un multiple entier d'un pic plus fort,
+// c'est probablement une harmonique. On garde les fondamentales.
+function removeHarmonics(peaks) {
+  if (peaks.length === 0) return [];
+  const fundamentals = [];
+  const used = new Set();
+
+  for (let i = 0; i < peaks.length; i++) {
+    if (used.has(i)) continue;
+    const fundamental = peaks[i];
+    fundamentals.push(fundamental);
+    // Marquer les harmoniques de ce pic
+    for (let j = i + 1; j < peaks.length; j++) {
+      if (used.has(j)) continue;
+      const ratio = peaks[j].freq / fundamental.freq;
+      // Si le ratio est proche d'un entier entre 2 et 8, c'est une harmonique
+      for (let h = 2; h <= 8; h++) {
+        if (Math.abs(ratio - h) < 0.06) {
+          used.add(j);
+          break;
+        }
+      }
+    }
+  }
+  return fundamentals.slice(0, 6); // 6 fondamentales max
+}
+
+// Identifie l'accord à partir d'un ensemble de notes détectées
+function identifyChordFromNotes(noteNames) {
+  if (noteNames.length < 2) return null;
+  const unique = [...new Set(noteNames)];
+
+  // Essayer chaque fondamentale et type d'accord
+  let bestMatch = null;
+  let bestScore = 0;
+
+  for (const root of CHROMATIC) {
+    const ri = CHROMATIC.indexOf(root);
+    for (const [type, {formula, suffix, label}] of Object.entries(CHORD_TYPES)) {
+      const chordNotes = formula.map(f => CHROMATIC[(ri + f + 12) % 12]);
+      // Score : combien de notes de l'accord sont détectées
+      const matched   = chordNotes.filter(n => unique.includes(n)).length;
+      const extra     = unique.filter(n => !chordNotes.includes(n)).length;
+      const score     = matched - extra * 0.5;
+
+      if (score > bestScore && matched >= Math.min(2, formula.length)) {
+        bestScore = score;
+        bestMatch = { root, type, suffix, label, name: root + suffix, score, matched, total: formula.length };
+      }
+    }
+  }
+
+  // Seuil de confiance minimum
+  return (bestScore >= 1.5) ? bestMatch : null;
+}
+
+// ── Hook useMicrophone ────────────────────────────────────────────────────────
+function useMicrophone() {
+  const [isActive,       setIsActive]       = useState(false);
+  const [permission,     setPermission]     = useState('idle'); // idle | granted | denied | error
+  const [detectedNotes,  setDetectedNotes]  = useState([]);
+  const [detectedChord,  setDetectedChord]  = useState(null);
+  const [volume,         setVolume]         = useState(0); // 0-100
+
+  const streamRef    = useRef(null);
+  const contextRef   = useRef(null);
+  const analyserRef  = useRef(null);
+  const animFrameRef = useRef(null);
+  const sourceRef    = useRef(null);
+
+  function stop() {
+    cancelAnimationFrame(animFrameRef.current);
+    if (sourceRef.current)  try { sourceRef.current.disconnect();  } catch(e) {}
+    if (analyserRef.current) try { analyserRef.current.disconnect(); } catch(e) {}
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
+    if (contextRef.current && contextRef.current.state !== 'closed') {
+      try { contextRef.current.close(); } catch(e) {}
+    }
+    streamRef.current = null; contextRef.current = null;
+    analyserRef.current = null; sourceRef.current = null;
+    setIsActive(false);
+    setDetectedNotes([]);
+    setDetectedChord(null);
+    setVolume(0);
+  }
+
+  async function start() {
+    try {
+      setPermission('idle');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false, // important : ne pas modifier le son du piano
+          noiseSuppression: false,
+          autoGainControl:  false,
+          sampleRate: 44100,
+        }
+      });
+      setPermission('granted');
+      streamRef.current = stream;
+
+      const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 44100 });
+      contextRef.current = ctx;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize            = 8192; // haute résolution fréquentielle
+      analyser.smoothingTimeConstant = 0.6;
+      analyserRef.current = analyser;
+
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      sourceRef.current = source;
+
+      setIsActive(true);
+
+      const freqBuffer  = new Float32Array(analyser.frequencyBinCount);
+      const timeBuffer  = new Float32Array(analyser.fftSize);
+
+      let lastUpdate = 0;
+      function loop(ts) {
+        animFrameRef.current = requestAnimationFrame(loop);
+        if (ts - lastUpdate < 120) return; // max ~8 fps pour la détection
+        lastUpdate = ts;
+
+        analyser.getFloatFrequencyData(freqBuffer);
+        analyser.getFloatTimeDomainData(timeBuffer);
+
+        // Volume RMS
+        let rms = 0;
+        for (let i = 0; i < timeBuffer.length; i++) rms += timeBuffer[i] * timeBuffer[i];
+        rms = Math.sqrt(rms / timeBuffer.length);
+        setVolume(Math.min(100, Math.round(rms * 400)));
+
+        if (rms < 0.008) {
+          // Trop silencieux — effacer progressivement
+          setDetectedNotes([]);
+          setDetectedChord(null);
+          return;
+        }
+
+        // Détection des pics
+        const peaks   = detectFFTPeaks(freqBuffer, ctx.sampleRate, analyser.fftSize * 2);
+        const fundams = removeHarmonics(peaks.slice(0, 12));
+        const notes   = fundams
+          .map(p => freqToNoteName(p.freq))
+          .filter(Boolean);
+        const unique  = [...new Set(notes)];
+
+        setDetectedNotes(unique);
+        const chord = identifyChordFromNotes(unique);
+        setDetectedChord(chord);
+      }
+      requestAnimationFrame(loop);
+
+    } catch (err) {
+      const denied = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
+      setPermission(denied ? 'denied' : 'error');
+      setIsActive(false);
+    }
+  }
+
+  useEffect(() => () => stop(), []);
+
+  return { isActive, permission, detectedNotes, detectedChord, volume, start, stop };
+}
+
+// ── Composant MicDetector (visuel) ────────────────────────────────────────────
+function MicDetector({ mic, expectedChord=null, onMatch=null, matchMode='chord' }) {
+  const { isActive, permission, detectedNotes, detectedChord, volume, start, stop } = mic;
+
+  // Vérifier si la détection correspond à l'accord attendu
+  useEffect(() => {
+    if (!onMatch || !expectedChord || !detectedChord) return;
+    if (matchMode === 'chord') {
+      // Comparaison souple : root + type doit matcher
+      const expectedRoot   = expectedChord.root;
+      const expectedType   = expectedChord.type;
+      if (detectedChord.root === expectedRoot && detectedChord.type === expectedType) {
+        onMatch(detectedChord);
+      }
+    }
+  }, [detectedChord, expectedChord]); // eslint-disable-line
+
+  const color = expectedChord && detectedChord
+    ? (detectedChord.root === expectedChord.root && detectedChord.type === expectedChord.type ? '#82E0AA' : '#F1948A')
+    : '#E8A857';
+
+  return (
+    <div style={{padding:'1rem',background:'rgba(232,168,87,0.07)',border:`1px solid ${isActive ? color+'40' : 'rgba(232,168,87,0.2)'}`,borderRadius:12,transition:'border-color 0.3s'}}>
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'.75rem'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          {/* Mic icon + recording indicator */}
+          <div style={{position:'relative',width:22,height:22,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <span style={{fontSize:16}}>{isActive ? '🎙️' : '🎤'}</span>
+            {isActive && (
+              <div style={{position:'absolute',top:-2,right:-2,width:8,height:8,borderRadius:'50%',background:'#F1948A',animation:'streakPulse 1s ease-in-out infinite'}}/>
+            )}
+          </div>
+          <span style={{fontSize:10,fontFamily:'monospace',color:'rgba(255,255,255,0.5)',letterSpacing:'.08em'}}>
+            {isActive ? 'ÉCOUTE EN COURS' : 'MICROPHONE'}
+          </span>
+        </div>
+        <button
+          onClick={isActive ? stop : start}
+          style={{padding:'.35rem .8rem',background:isActive?'rgba(241,148,138,0.15)':'rgba(232,168,87,0.15)',border:`1px solid ${isActive?'#F1948A':'#E8A857'}`,borderRadius:8,cursor:'pointer',fontSize:10,fontFamily:'monospace',fontWeight:'bold',color:isActive?'#F1948A':'#E8A857',transition:'all 0.2s'}}>
+          {isActive ? '⏹ STOP' : '▶ ACTIVER'}
+        </button>
+      </div>
+
+      {/* Permission error */}
+      {permission === 'denied' && (
+        <div style={{fontSize:11,color:'#F1948A',fontFamily:'monospace',padding:'.5rem',background:'rgba(241,148,138,0.1)',borderRadius:8,marginBottom:'.5rem'}}>
+          ⚠ Microphone refusé. Autorise l'accès dans les paramètres du navigateur.
+        </div>
+      )}
+      {permission === 'error' && (
+        <div style={{fontSize:11,color:'#F1948A',fontFamily:'monospace',padding:'.5rem',background:'rgba(241,148,138,0.1)',borderRadius:8,marginBottom:'.5rem'}}>
+          ⚠ Impossible d'accéder au microphone.
+        </div>
+      )}
+
+      {/* Volume bar */}
+      {isActive && (
+        <div style={{marginBottom:'.65rem'}}>
+          <div style={{height:4,background:'rgba(255,255,255,0.08)',borderRadius:2,overflow:'hidden'}}>
+            <div style={{height:'100%',width:`${volume}%`,background:volume > 5 ? '#E8A857' : 'rgba(255,255,255,0.2)',borderRadius:2,transition:'width 0.08s ease'}}/>
+          </div>
+          {volume < 3 && <div style={{fontSize:9,opacity:.4,fontFamily:'monospace',marginTop:3}}>Joue quelque chose…</div>}
+        </div>
+      )}
+
+      {/* Detected notes */}
+      {isActive && (
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:detectedChord?'.65rem':'0'}}>
+          {detectedNotes.length > 0 ? detectedNotes.map(n => (
+            <span key={n} style={{
+              padding:'3px 9px',
+              background:NOTE_COLORS[n] ? `${NOTE_COLORS[n]}20` : 'rgba(255,255,255,0.08)',
+              border:`1px solid ${NOTE_COLORS[n] ? NOTE_COLORS[n]+'50' : 'rgba(255,255,255,0.15)'}`,
+              borderRadius:6,
+              fontSize:12, fontWeight:'bold', fontFamily:'monospace',
+              color: NOTE_COLORS[n] || 'rgba(255,255,255,0.7)',
+              transition:'all 0.2s',
+            }}>{n}</span>
+          )) : (
+            <span style={{fontSize:10,opacity:.35,fontFamily:'monospace'}}>— aucune note détectée —</span>
+          )}
+        </div>
+      )}
+
+      {/* Detected chord */}
+      {isActive && detectedChord && (
+        <div style={{
+          padding:'.6rem .85rem',
+          background: expectedChord
+            ? (detectedChord.root===expectedChord.root && detectedChord.type===expectedChord.type
+               ? 'rgba(130,224,170,0.12)' : 'rgba(241,148,138,0.08)')
+            : 'rgba(232,168,87,0.12)',
+          border:`1px solid ${expectedChord
+            ? (detectedChord.root===expectedChord.root && detectedChord.type===expectedChord.type
+               ? '#82E0AA' : '#F1948A')
+            : '#E8A857'}40`,
+          borderRadius:9,
+          display:'flex', justifyContent:'space-between', alignItems:'center',
+          transition:'all 0.3s',
+        }}>
+          <div>
+            <div style={{fontSize:10,opacity:.45,fontFamily:'monospace',marginBottom:2}}>ACCORD DÉTECTÉ</div>
+            <div style={{fontSize:18,fontWeight:'bold',fontFamily:'monospace',color: expectedChord
+              ? (detectedChord.root===expectedChord.root && detectedChord.type===expectedChord.type ? '#82E0AA' : '#F1948A')
+              : '#E8A857'}}>
+              {detectedChord.name}
+            </div>
+            <div style={{fontSize:10,opacity:.4,fontFamily:'monospace'}}>{detectedChord.label}</div>
+          </div>
+          {expectedChord && (
+            <div style={{fontSize:22}}>
+              {detectedChord.root===expectedChord.root && detectedChord.type===expectedChord.type ? '✓' : '✗'}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tip */}
+      {!isActive && (
+        <p style={{fontSize:11,opacity:.45,margin:0,fontFamily:'Georgia,serif',fontStyle:'italic'}}>
+          Active le micro pour que l'app écoute ton piano et valide tes accords automatiquement.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Dictée d'accords (auto-avance) ────────────────────────────────────────────
 function DicteeAccords() {
   const [screen,    setScreen]    = useState('config');
@@ -4317,15 +4653,19 @@ function DicteeAccords() {
   const [count,     setCount]     = useState(8);
   const [secPerCard,setSecPerCard]= useState(5);
   const [loopMode,  setLoopMode]  = useState(false);
+  const [micMode,   setMicMode]   = useState(false); // validate with mic
 
   const [cards,     setCards]     = useState([]);
   const [idx,       setIdx]       = useState(0);
   const [timeLeft,  setTimeLeft]  = useState(0);
-  const [running,   setRunning]   = useState(false); // timer ticking
+  const [running,   setRunning]   = useState(false);
   const [paused,    setPaused]    = useState(false);
-  const [pulse,     setPulse]     = useState(false); // metronome visual
-  const [history,   setHistory]   = useState([]); // kept minimal for result screen
+  const [pulse,     setPulse]     = useState(false);
+  const [history,   setHistory]   = useState([]);
   const [completed, setCompleted] = useState(0);
+  const [micSuccess,setMicSuccess]= useState(false); // flash on mic match
+
+  const mic = useMicrophone();
 
   const timerRef    = useRef(null);
   const pulseRef    = useRef(null);
@@ -4585,15 +4925,38 @@ function DicteeAccords() {
           })}
         </div>
 
+        {/* MicDetector — validation par microphone */}
+        {micMode && (
+          <MicDetector
+            mic={mic}
+            expectedChord={card ? {root:card.root, type:card.type} : null}
+            onMatch={()=>{
+              setMicSuccess(true);
+              setTimeout(()=>{setMicSuccess(false);advanceCard();}, 800);
+            }}
+          />
+        )}
+
+        {/* Mic success flash */}
+        {micSuccess && (
+          <div style={{textAlign:'center',padding:'.75rem',background:'rgba(130,224,170,0.15)',border:'1px solid #82E0AA',borderRadius:10,color:'#82E0AA',fontFamily:'monospace',fontWeight:'bold',fontSize:13,animation:'fadeIn 0.15s ease'}}>
+            ✓ Accord reconnu !
+          </div>
+        )}
+
         {/* Controls */}
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8}}>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:8}}>
           <button onClick={togglePause}
-            style={{padding:'.85rem .25rem',background:paused?'rgba(247,220,111,0.15)':'rgba(255,255,255,0.05)',border:`1.5px solid ${paused?'#F7DC6F':'rgba(255,255,255,0.15)'}`,color:paused?'#F7DC6F':'rgba(255,255,255,0.6)',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
-            {paused?'▶ REPRENDRE':'⏸ PAUSE'}
+            style={{padding:'.85rem .25rem',background:paused?'rgba(247,220,111,0.15)':'rgba(255,255,255,0.05)',border:`1.5px solid ${paused?'#F7DC6F':'rgba(255,255,255,0.15)'}`,color:paused?'#F7DC6F':'rgba(255,255,255,0.6)',borderRadius:10,cursor:'pointer',fontSize:11,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            {paused?'▶ REPRISE':'⏸ PAUSE'}
+          </button>
+          <button onClick={()=>setMicMode(v=>!v)}
+            style={{padding:'.85rem .25rem',background:micMode?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.05)',border:`1.5px solid ${micMode?'#E8A857':'rgba(255,255,255,0.15)'}`,color:micMode?'#E8A857':'rgba(255,255,255,0.5)',borderRadius:10,cursor:'pointer',fontSize:11,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            🎤 MIC
           </button>
           <button onClick={advanceCard}
-            style={{padding:'.85rem .25rem',background:'rgba(133,193,233,0.12)',border:'1.5px solid #85C1E9',color:'#85C1E9',borderRadius:10,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
-            PASSER →
+            style={{padding:'.85rem .25rem',background:'rgba(133,193,233,0.12)',border:'1.5px solid #85C1E9',color:'#85C1E9',borderRadius:10,cursor:'pointer',fontSize:11,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s'}}>
+            → PASSER
           </button>
         </div>
       </div>
@@ -6732,6 +7095,9 @@ function TranspositionRefonte() {
   const [showAnswer,setShowAnswer]= useState(false);
   const [pianoActive,setPianoActive]=useState(false);
   const [playingNotes,setPlayingNotes]=useState(new Set());
+  const [micMode,     setMicMode]    = useState(false);
+  const [micMatch,    setMicMatch]   = useState(false);
+  const mic = useMicrophone();
   const timeoutsRef = useRef([]);
 
   function clearTimeouts() { timeoutsRef.current.forEach(clearTimeout); timeoutsRef.current=[]; }
@@ -6986,6 +7352,41 @@ function TranspositionRefonte() {
           </div>
         )}
 
+        {/* Microphone — mode piano réel */}
+        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:'-.5rem'}}>
+          <button onClick={()=>{setMicMode(v=>!v);if(micMode)mic.stop();}}
+            style={{flex:1,padding:'.6rem',background:micMode?'rgba(232,168,87,0.15)':'rgba(255,255,255,0.04)',border:`1.5px solid ${micMode?'#E8A857':'rgba(255,255,255,0.12)'}`,borderRadius:9,cursor:'pointer',color:micMode?'#E8A857':'rgba(255,255,255,0.5)',fontSize:11,fontFamily:'monospace',fontWeight:'bold',transition:'all 0.2s',display:'flex',alignItems:'center',gap:6,justifyContent:'center'}}>
+            <span>🎤</span>
+            <span>{micMode?'Désactiver le micro':'Jouer sur mon vrai piano'}</span>
+          </button>
+        </div>
+
+        {micMode && (
+          <MicDetector
+            mic={mic}
+            expectedChord={mode==='accords' && expectedAnswer ? (() => {
+              // For chord mode: detect the first expected chord
+              const firstChord = expectedAnswer.split(' - ')[0];
+              const ri = CHROMATIC.findIndex(n => firstChord.startsWith(n));
+              if (ri < 0) return null;
+              const root = CHROMATIC[ri];
+              const suffix = firstChord.slice(root.length);
+              const type = Object.keys(CHORD_TYPES).find(t => CHORD_TYPES[t].suffix === suffix) || null;
+              return type ? {root, type} : null;
+            })() : null}
+            onMatch={mode==='accords' ? ()=>{
+              setMicMatch(true);
+              setTimeout(()=>setMicMatch(false), 1500);
+            } : null}
+          />
+        )}
+
+        {micMatch && (
+          <div style={{textAlign:'center',padding:'.75rem',background:'rgba(130,224,170,0.15)',border:'1px solid #82E0AA',borderRadius:10,color:'#82E0AA',fontFamily:'monospace',fontWeight:'bold',fontSize:13,animation:'fadeIn 0.15s ease'}}>
+            ✓ Accord reconnu !
+          </div>
+        )}
+
         {/* Controls */}
         <div style={{display:'flex',gap:8}}>
           {!feedback&&!showAnswer&&(
@@ -7000,7 +7401,7 @@ function TranspositionRefonte() {
               🔄 NOUVEL ESSAI
             </button>
           )}
-          <button onClick={()=>{reset();setScreen('config');}}
+          <button onClick={()=>{reset();setScreen('config');mic.stop();}}
             style={{padding:'.65rem .9rem',background:'rgba(255,255,255,0.04)',border:'1px solid rgba(255,255,255,0.12)',borderRadius:9,cursor:'pointer',color:'rgba(255,255,255,0.4)',fontSize:11,fontFamily:'monospace'}}>
             ⚙
           </button>
